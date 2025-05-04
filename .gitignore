@@ -1,0 +1,41 @@
+# node modules
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.pid.lock
+
+# Coverage output
+coverage/
+.nyc_output/
+
+# Optional npm cache
+.npm/
+
+# dotenv environment files
+.env
+.env.test
+.env.production
+
+# Build outputs
+dist/
+build/
+lib-cov/
+
+# Compiled binary addons
+build/Release/
+
+# REPL history
+.node_repl_history
+
+# ESLint cache
+.eslintcache
+
+# VSCode settings (optional)
+.vscode/
