@@ -2,14 +2,11 @@ import express, { json } from 'express';
 import { config } from 'dotenv';
 import { WebhookClient } from 'dialogflow-fulfillment';
 import { connectDB, getDB } from './Config/DatabaseConfig.js';
-import {cors} from 'cors';
-
 
 config();
 await connectDB();
 
 const app = express();
-app.use(cors());
 app.use(json());
 
 
