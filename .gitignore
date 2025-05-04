@@ -39,3 +39,4 @@ build/Release/
 
 # VSCode settings (optional)
 .vscode/
+.vercel
