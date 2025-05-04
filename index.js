@@ -196,7 +196,7 @@ app.post('/webhook', async (req, res) => {
           case 'AskComparison':
               handlerResult = await handleAskComparison(parameters);
               break;
-          case 'AskExample':
+          case 'AskExample_FollowUp':
               // Logic xử lý đã bao gồm việc lấy concept từ context (nếu được cấu hình trong Dialogflow)
               handlerResult = await handleAskExample(parameters);
               break;
