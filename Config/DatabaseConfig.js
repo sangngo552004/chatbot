@@ -1,5 +1,6 @@
 import { MongoClient } from 'mongodb';
 const MONGO_URL = 'mongodb+srv://sangngo552004:SANG0968478424@production-management.xvgdy1a.mongodb.net/?retryWrites=true&w=majority&appName=production-management'
+// const MONGO_URL = 'mongodb+srv://vanminhtan04:pU5SeQpEIaiVXFIU@production-management.xvgdy1a.mongodb.net/?retryWrites=true&w=majority&appName=production-management';
 const client = new MongoClient(MONGO_URL);
 
 let db;
