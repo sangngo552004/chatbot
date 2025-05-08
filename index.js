@@ -308,7 +308,7 @@ async function handleRequestQuestionList(parameters, sessionPath) {
 
             // Lưu dữ liệu câu hỏi vào context (Đảm bảo có cả options)
             const sessionInfo = extractSessionInfo(sessionPath);
-            const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'context_question_list_active');
+            const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_list_followup');
             
 
             const questionDataForContext = questions.map(q => ({
