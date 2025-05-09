@@ -54,7 +54,7 @@ async function findConcept(conceptParam, conceptsCollection) {
 
 async function getRandomQuestions(params, questionsCollection) {
     // ... (Giữ nguyên, nhưng đảm bảo lấy đủ thông tin cần cho context) ...
-    const { number, topic, difficulty, concept } = params;
+    const { number, topic, difficulty, concept, question_type } = params;
     const numQuestions = parseInt(number, 10) || 10; // Mặc định 10 câu
 
     const query = {};
@@ -65,7 +65,7 @@ async function getRandomQuestions(params, questionsCollection) {
               { sub_topic: { $regex: `^${String(concept)}$`, $options: 'i' } }
           ];
      }
-     query.type = "multiple_choice";
+     query.type = `${String(question_type)}`;
 
     console.log("Querying questions with:", query);
     try {
@@ -288,9 +288,23 @@ async function handleRequestQuestionList(parameters, sessionPath) {
 
     try {
         const questionsCollection = db.collection(QUESTIONS_COLLECTION);
+
+        let requestedNumber = parseInt(parameters.number, 10);
+        // GIỚI HẠN SỐ LƯỢNG CÂU HỎI Ở ĐÂY
+        const maxQuestions = 5;
+        let numQuestionsToList;
+
+        if (isNaN(requestedNumber) || requestedNumber <= 0) {
+            // Nếu người dùng không nhập số lượng, hoặc nhập không hợp lệ, mặc định là 5 (hoặc số câu tối đa nếu muốn ít hơn)
+            numQuestionsToList = maxQuestions;
+        } else {
+            // Nếu người dùng yêu cầu số lượng, lấy số đó nhưng không vượt quá maxQuestions
+            numQuestionsToList = Math.min(requestedNumber, maxQuestions);
+        }
         // queryParams are passed to getRandomQuestions
         const queryParams = {
             ...parameters, // Includes concept (array), number, question_type (array), topic
+            number: numQuestionsToList,
             // getRandomQuestions might expect 'concept' as a single string
             concept: Array.isArray(parameters.concept) ? parameters.concept[0] : parameters.concept
         };
