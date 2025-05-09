@@ -307,7 +307,7 @@ async function handleRequestQuestionList(parameters, sessionPath) {
                 return questionBlock;
             }).join('\n\n');
 
-            result.responseText = `Đây là ${questions.length} câu hỏi theo yêu cầu của bạn:\n\n${formattedQuestions}\n\nBạn muốn xem đáp án hoặc giải thích cho câu nào không?`;
+            result.responseText = `Đây là ${questions.length} câu hỏi theo yêu cầu của bạn:\n\n${formattedQuestions}\n\nBạn có muốn xem đáp án cho câu nào không?`;
 
             const sessionInfo = extractSessionInfo(sessionPath);
             const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_list_followup');
@@ -1108,7 +1108,7 @@ async function handleSubmitUserAnswersForList(parameters, inputContexts, session
     // Dựa trên JSON của bạn, tên context là 'quiz_list_followup'
     // Hoặc tên context bạn đã đặt cho Output của RequestQuestionList, ví dụ 'context_question_list_active'
     const listContext = inputContexts.find(ctx =>
-        (ctx.name.endsWith('/contexts/quiz_list_followup') || ctx.name.endsWith('/contexts/context_question_list_active')) &&
+        (ctx.name.endsWith('/contexts/quiz_list_followup')) &&
         ctx.parameters &&
         ctx.parameters.question_data // Đây là nơi bạn lưu mảng các { question_id: "..." }
     );
@@ -1210,20 +1210,19 @@ async function handleSubmitUserAnswersForList(parameters, inputContexts, session
 
         if (feedbackDetails.length > 0) {
             const totalAnswered = questionNumbers.length;
-            result.responseText = `Kết quả của bạn:\n${feedbackDetails.join("\n")}\n\nTổng kết: Bạn đã đúng ${correctCount}/${totalAnswered} câu.`;
+            result.responseText = `Kết quả của bạn:\n${feedbackDetails.join("\n")}\n\nTổng kết: Bạn đã đúng ${correctCount}/${totalAnswered} câu.\nBạn có muốn tôi giải thích thêm về các câu hỏi này không?`;
         } else {
             result.responseText = "Tôi không nhận được đáp án nào hợp lệ để nhận xét.";
         }
 
-        // Xóa context context_question_list_active (hoặc quiz_list_followup) sau khi đã nhận xét
         const sessionInfo = extractSessionInfo(sessionPath);
-        const contextNameToClear = listContext.name.split('/').pop(); // Lấy tên ngắn của context đã dùng
-        const contextFullNameToClear = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, contextNameToClear);
+        const contextFullNameToMaintain = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_answer_followup');
         result.outputContexts.push({
-            name: contextFullNameToClear,
-            lifespanCount: 0 // Xóa context
+            name: contextFullNameToMaintain,
+            lifespanCount: 2, // Đặt lifespan ngắn cho follow-up hỏi giải thích
+            parameters: listContext.parameters // Giữ nguyên question_ids (hoặc question_data)
         });
-        console.log(`Clearing context: ${contextFullNameToClear}`);
+        console.log(`Maintaining context: ${contextFullNameToMaintain} for explanation followup.`);
 
 
     } catch (error) {
