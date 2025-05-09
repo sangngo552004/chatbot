@@ -81,8 +81,8 @@ async function getRandomQuestions(params, questionsCollection) {
               options: q.options,
               correct_answer: q.correct_answer,
               explanation: q.explanation,
-              user_answer: null, // Thêm trường để lưu câu trả lời trong context
-              is_correct: null   // Thêm trường để lưu kết quả trong context
+            //   user_answer: null, // Thêm trường để lưu câu trả lời trong context
+            //   is_correct: null   // Thêm trường để lưu kết quả trong context
          }));
         console.log(`Found ${detailedQuestions.length} questions.`);
         return detailedQuestions;
