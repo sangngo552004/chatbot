@@ -1098,6 +1098,141 @@ async function handleAskQuizQuestion(parameters, sessionPath) {
     return result;
 }
 
+async function handleSubmitUserAnswersForList(parameters, inputContexts, sessionPath) {
+    const result = { responseText: "Xin lỗi, tôi chưa thể nhận xét đáp án của bạn lúc này.", outputContexts: [] };
+
+    const userAnswers = parameters.answer_choice; // Mảng ["A", "B", "C", "D", "A"]
+    const questionNumbers = parameters.number;     // Mảng [1, 2, 3, 4, 5]
+
+    // Tìm context chứa danh sách question_id
+    // Dựa trên JSON của bạn, tên context là 'quiz_list_followup'
+    // Hoặc tên context bạn đã đặt cho Output của RequestQuestionList, ví dụ 'context_question_list_active'
+    const listContext = inputContexts.find(ctx =>
+        (ctx.name.endsWith('/contexts/quiz_list_followup') || ctx.name.endsWith('/contexts/context_question_list_active')) &&
+        ctx.parameters &&
+        ctx.parameters.question_data // Đây là nơi bạn lưu mảng các { question_id: "..." }
+    );
+
+    if (!listContext || !listContext.parameters.question_data) {
+        result.responseText = "Xin lỗi, tôi không tìm thấy danh sách câu hỏi bạn đang trả lời. Bạn có thể yêu cầu danh sách mới được không?";
+        return result;
+    }
+
+    // question_data trong context bạn gửi là một mảng các object, mỗi object có key là question_id
+    // Ví dụ: [{ "question_id": "68162c885b647869f5d5a5d1" }, ...]
+    // Chúng ta cần lấy ra danh sách các ID này.
+    let questionDataFromContext;
+    try {
+        // Nếu question_data đã là mảng object thì dùng trực tiếp
+        // Nếu nó là chuỗi JSON (do cách lưu ở RequestQuestionList), thì cần parse
+        if (typeof listContext.parameters.question_data === 'string') {
+            questionDataFromContext = JSON.parse(listContext.parameters.question_data);
+        } else {
+            questionDataFromContext = listContext.parameters.question_data;
+        }
+
+        if (!Array.isArray(questionDataFromContext)) {
+            throw new Error("question_data trong context không phải là mảng.");
+        }
+    } catch (e) {
+        console.error("Lỗi parse question_data từ context:", e);
+        result.responseText = "Có lỗi khi đọc dữ liệu câu hỏi từ context. Vui lòng thử lại.";
+        return result;
+    }
+
+    // Trích xuất danh sách các ID từ context
+    // Giả sử mỗi phần tử trong questionDataFromContext là { question_id: "some_id_string" }
+    const questionIdsFromContext = questionDataFromContext.map(item => item.question_id);
+
+
+    if (!userAnswers || !questionNumbers || userAnswers.length !== questionNumbers.length || userAnswers.length === 0) {
+        result.responseText = "Có vẻ như bạn chưa cung cấp đủ thông tin đáp án hoặc số thứ tự câu hỏi. Vui lòng thử lại, ví dụ: '1A 2B 3C'.";
+        return result;
+    }
+
+    console.log(`Handling user answers for list. User answers: ${JSON.stringify(userAnswers)}, Question numbers: ${JSON.stringify(questionNumbers)}`);
+    console.log(`Question IDs from context: ${JSON.stringify(questionIdsFromContext)}`);
+
+
+    try {
+        const questionsCollection = db.collection(QUESTIONS_COLLECTION);
+        let correctCount = 0;
+        let feedbackDetails = [];
+
+        // Lấy chi tiết (bao gồm đáp án đúng) của các câu hỏi dựa trên ID từ context
+        // Chuyển đổi questionIdsFromContext (string) thành ObjectId để query
+        const objectIdsToQuery = questionIdsFromContext.map(idStr => {
+            try {
+                return new ObjectId(idStr);
+            } catch (e) {
+                console.error(`Invalid ObjectId string: ${idStr}`);
+                return null; // hoặc xử lý lỗi khác
+            }
+        }).filter(id => id !== null); // Loại bỏ các ID không hợp lệ
+
+
+        if (objectIdsToQuery.length !== questionIdsFromContext.length) {
+            console.error("Một số question_id trong context không hợp lệ.");
+            // Xử lý trường hợp này, có thể thông báo lỗi hoặc chỉ xử lý các ID hợp lệ
+        }
+        
+        const dbQuestions = await questionsCollection.find({ _id: { $in: objectIdsToQuery } }).toArray();
+        const dbQuestionsMap = dbQuestions.reduce((map, question) => {
+            map[question._id.toString()] = question;
+            return map;
+        }, {});
+
+        for (let i = 0; i < questionNumbers.length; i++) {
+            const userQNumber = parseInt(questionNumbers[i], 10); // Số thứ tự người dùng nhập (1-based)
+            const userAnswerChoice = String(userAnswers[i]).toUpperCase();
+
+            // Lấy question_id tương ứng với số thứ tự người dùng nhập
+            // (người dùng nhập "câu 1" thì index là 0 trong mảng questionIdsFromContext)
+            if (userQNumber > 0 && userQNumber <= questionIdsFromContext.length) {
+                const questionIdFromUserList = questionIdsFromContext[userQNumber - 1];
+                const dbQuestion = dbQuestionsMap[questionIdFromUserList]; // Tra cứu bằng _id string
+
+                if (dbQuestion) {
+                    const correctAnswer = String(dbQuestion.correct_answer).toUpperCase();
+                    if (userAnswerChoice === correctAnswer) {
+                        correctCount++;
+                        feedbackDetails.push(`Câu ${userQNumber}: ${userAnswerChoice} - Chính xác!`);
+                    } else {
+                        feedbackDetails.push(`Câu ${userQNumber}: ${userAnswerChoice} - Không đúng. Đáp án là ${correctAnswer}.`);
+                    }
+                } else {
+                    feedbackDetails.push(`Câu ${userQNumber}: Không tìm thấy thông tin câu hỏi này trong danh sách đã cung cấp.`);
+                }
+            } else {
+                feedbackDetails.push(`Câu ${userQNumber}: Số thứ tự không hợp lệ.`);
+            }
+        }
+
+        if (feedbackDetails.length > 0) {
+            const totalAnswered = questionNumbers.length;
+            result.responseText = `Kết quả của bạn:\n${feedbackDetails.join("\n")}\n\nTổng kết: Bạn đã đúng ${correctCount}/${totalAnswered} câu.`;
+        } else {
+            result.responseText = "Tôi không nhận được đáp án nào hợp lệ để nhận xét.";
+        }
+
+        // Xóa context context_question_list_active (hoặc quiz_list_followup) sau khi đã nhận xét
+        const sessionInfo = extractSessionInfo(sessionPath);
+        const contextNameToClear = listContext.name.split('/').pop(); // Lấy tên ngắn của context đã dùng
+        const contextFullNameToClear = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, contextNameToClear);
+        result.outputContexts.push({
+            name: contextFullNameToClear,
+            lifespanCount: 0 // Xóa context
+        });
+        console.log(`Clearing context: ${contextFullNameToClear}`);
+
+
+    } catch (error) {
+        console.error("Error handling handleSubmitUserAnswersForList:", error);
+        result.responseText = "Đã có lỗi xảy ra khi nhận xét đáp án của bạn.";
+    }
+    return result;
+}
+
 
 // --- Endpoint Webhook Chính ---
 app.post('/webhook', async (req, res) => {
@@ -1179,8 +1314,9 @@ app.post('/webhook', async (req, res) => {
               case 'answer_theory_question':
                 handlerResult = await handleAskTheoryQuestion(parameters, sessionPath);
                   break;
-              case 'submit_quiz_answer':
-                  handlerResult = await handleSubmitQuizQuestion(parameters, inputContexts, sessionPath);
+              case 'submit_quiz_question':
+                  handlerResult = await handleSubmitUserAnswersForList(parameters, inputContexts, sessionPath);
+                  break;
             // Các action cho intent phụ trợ nếu webhook cần xử lý
             // case 'action.welcome':
             //     handlerResult.responseText = "Chào mừng bạn đến với trợ lý ảo bảo mật!";
