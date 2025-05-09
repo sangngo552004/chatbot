@@ -19,7 +19,9 @@ const QUESTIONS_COLLECTION = 'questions';
 // --- Hàm Trợ giúp ---
 function extractSessionInfo(sessionPath) {
     // ... (Giữ nguyên) ...
-    const match = sessionPath.match(/projects\/([^/]+)\/(?:agent\/)?(?:environments\/[^/]+\/users\/[^/]+\/)?sessions\/([^/]+)/);
+    const match = typeof sessionPath === 'string' 
+        ? sessionPath.match(/projects\/([^/]+)\/(?:agent\/)?(?:environments\/[^/]+\/users\/[^/]+\/)?sessions\/([^/]+)/) 
+        : null;
     if (match && match[1] && match[2]) {
         return { projectId: match[1], sessionId: match[2] };
     }
@@ -107,7 +109,7 @@ async function getQuestionDetails(questionId, questionsCollection) {
 
 // Nhóm 1: Lý thuyết (Giữ nguyên hoặc chỉnh sửa như code trước)
 // Nhóm 1: Lý thuyết
-async function handleAskDefinition(parameters, sessionPath, explainationDetailed = false) {
+async function handleGiveDefinition(parameters, sessionPath, explainationDetailed = false) {
     const result = { responseText: "Xin lỗi, tôi chưa hiểu ý bạn.", outputContexts: [] };
     // parameters.concept có thể là một mảng các concepts nếu người dùng hỏi nhiều
     const conceptsArray = (parameters.concept && Array.isArray(parameters.concept))
@@ -180,7 +182,7 @@ async function handleAskDefinition(parameters, sessionPath, explainationDetailed
 }
 
 
-async function handleAskComparison(parameters) {
+async function handleComparison(parameters) {
     const result = { responseText: "Xin lỗi, tôi chưa hiểu ý bạn.", outputContexts: [] };
     console.log(parameters)
     const defined_concept = parameters.defined_concept;
@@ -231,7 +233,7 @@ async function handleAskComparison(parameters) {
      return result;
 }
 
-async function handleAskExample(parameters) {
+async function handleGiveExample(parameters) {
     const result = { responseText: "Xin lỗi, tôi chưa hiểu ý bạn.", outputContexts: [] };
     const conceptParam = parameters.concept;
     const exampleTypeParam = parameters.example_type;
@@ -282,172 +284,220 @@ async function handleAskExample(parameters) {
 // Nhóm 4: Danh sách câu hỏi (Giữ nguyên logic dùng context)
 async function handleRequestQuestionList(parameters, sessionPath) {
     const result = { responseText: "Có lỗi khi lấy danh sách câu hỏi.", outputContexts: [] };
+    if (!db) db = getDB();
+
     try {
         const questionsCollection = db.collection(QUESTIONS_COLLECTION);
-        // Đảm bảo hàm getRandomQuestions lấy cả trường 'options' từ CSDL
-        const questions = await getRandomQuestions(parameters, questionsCollection);
+        // queryParams are passed to getRandomQuestions
+        const queryParams = {
+            ...parameters, // Includes concept (array), number, question_type (array), topic
+            // getRandomQuestions might expect 'concept' as a single string
+            concept: Array.isArray(parameters.concept) ? parameters.concept[0] : parameters.concept
+        };
+
+        const questions = await getRandomQuestions(queryParams, questionsCollection);
 
         if (questions && questions.length > 0) {
-            // --- THAY ĐỔI Ở ĐÂY ---
-            // Tạo chuỗi hiển thị bao gồm cả nội dung và lựa chọn
             const formattedQuestions = questions.map((q, index) => {
-                let questionBlock = `${index + 1}. ${q.content}`; // Bắt đầu với số thứ tự và nội dung
-
-                // Kiểm tra xem có options không và định dạng chúng
+                let questionBlock = `${index + 1}. ${q.content}`;
                 if (q.options && Array.isArray(q.options) && q.options.length > 0) {
-                    // Giả sử options trong CSDL là một mảng các chuỗi như "A. Nội dung A", "B. Nội dung B",...
-                    // Thêm các options vào, mỗi option một dòng và thụt vào cho dễ đọc
-                    const optionsString = q.options.map(opt => `   ${opt}`).join('\n');
-                    questionBlock += `\n${optionsString}`; // Thêm các lựa chọn vào sau nội dung câu hỏi
+                    const optionsString = q.options.map(opt => `    ${opt}`).join('\n');
+                    questionBlock += `\n${optionsString}`;
                 }
-                return questionBlock; // Trả về khối text hoàn chỉnh cho câu hỏi này
-            }).join('\n\n'); // Thêm một dòng trống giữa các câu hỏi
+                return questionBlock;
+            }).join('\n\n');
 
-            result.responseText = `Đây là ${questions.length} câu hỏi theo yêu cầu của bạn:\n\n${formattedQuestions}\n\nBạn muốn xem đáp án hoặc giải thích cho câu nào?`;
-            // --- KẾT THÚC THAY ĐỔI ---
+            result.responseText = `Đây là ${questions.length} câu hỏi theo yêu cầu của bạn:\n\n${formattedQuestions}\n\nBạn muốn xem đáp án hoặc giải thích cho câu nào không?`;
 
-            // Lưu dữ liệu câu hỏi vào context (Đảm bảo có cả options)
             const sessionInfo = extractSessionInfo(sessionPath);
             const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_list_followup');
             
-
             const questionDataForContext = questions.map(q => ({
-                 question_id:  q.question_id.toString(),
+                question_id: q.question_id // Already a string from getRandomQuestions
             }));
-
-            // Cảnh báo/Kiểm tra kích thước context nếu cần
-            // if (Buffer.byteLength(questionDataString, 'utf8') > YOUR_CONTEXT_LIMIT) ...
 
             result.outputContexts.push({
                 name: contextName,
-                lifespanCount: 5, // Chờ 5 lượt
-                parameters: {
-                    question_data: questionDataForContext
+                lifespanCount: 5,
+                parameters: { // Store all relevant original parameters along with the new question_data
+                    concept: parameters.concept, // Keep original array format from Dialogflow
+                    number: parameters.number,
+                    question_type: parameters.question_type, // Keep original array format
+                    topic: parameters.topic,
+                    question_data: questionDataForContext // This is the list of question IDs
                 }
             });
-console.log(`Setting Output Context: ${contextName} with ${questions.length} questions (including options).`);
+            console.log(`Setting Output Context: ${contextName} with ${questions.length} questions. question_data:`, JSON.stringify(questionDataForContext));
 
         } else {
-            result.responseText = "Xin lỗi, tôi không tìm thấy câu hỏi nào phù hợp với yêu cầu của bạn.";
+            const conceptName = Array.isArray(parameters.concept) ? parameters.concept[0] : parameters.concept;
+            result.responseText = `Xin lỗi, tôi không tìm thấy câu hỏi trắc nghiệm nào về chủ đề "${conceptName || 'bạn yêu cầu'}".`;
         }
     } catch (error) {
         console.error("Error handling RequestQuestionList:", error);
-        result.responseText = "Đã có lỗi xảy ra khi lấy danh sách câu hỏi.";
+        result.responseText = "Đã có lỗi nghiêm trọng xảy ra khi tôi cố gắng tạo danh sách câu hỏi cho bạn.";
     }
     return result;
 }
 
-// Hàm chung để xử lý hỏi đáp án/giải thích cho danh sách
-async function handleListQuery(parameters, inputContexts, sessionPath, type = 'answer') { // type = 'answer' hoặc 'explanation'
-   const result = { responseText: "Lỗi xử lý yêu cầu.", outputContexts: [] };
+async function handleListQuery(parameters, sessionPath, type = 'answer') {
+    const result = { responseText: "Lỗi không xác định khi xử lý yêu cầu của bạn.", outputContexts: [] };
+    if (!db) db = getDB();
 
-   // Lấy context và dữ liệu câu hỏi
-   const context = inputContexts.find(ctx => ctx.name.endsWith('/contexts/context_question_list_active'));
-//    if (!context || !context.parameters || !context.parameters.question_data) {
-//        result.responseText = "Xin lỗi, tôi không tìm thấy danh sách câu hỏi nào bạn đang xem. Hãy thử yêu cầu danh sách mới.";
-//        return result;
-//    }
+    const questionDataFromParams = parameters.question_data;
 
-   let questionData;
-   
-   try {
-       // Parse lại mảng từ chuỗi JSON
-       questionData = parameters.question_data;
+    if (!questionDataFromParams || !Array.isArray(questionDataFromParams) || questionDataFromParams.length === 0) {
+        result.responseText = "Xin lỗi, dường như không có danh sách câu hỏi nào đang hoạt động. Bạn có muốn tôi tạo một danh sách mới không?";
+        const sessionInfoClear = extractSessionInfo(sessionPath);
+        const contextFullNameClear = buildContextName(sessionInfoClear.projectId, sessionInfoClear.sessionId, 'quiz_list_followup');
+        result.outputContexts.push({ name: contextFullNameClear, lifespanCount: 0 });
+        return result;
+    }
 
-        if (!Array.isArray(questionData)) {
-          return result.status(400).json({ error: 'question_data phải là mảng.' });
+    const requestedNumbers = parameters['question-numbers'] || parameters.question_numbers || [];
+    const scope = parameters.scope;
+    
+    const responseLines = [];
+    const allQuestionIdsInCurrentList = questionDataFromParams.map(item => item.question_id);
+    const totalQuestionsInList = allQuestionIdsInCurrentList.length;
+
+    let questionIdsToFetchDetailsFor = [];
+    let userRequestedSpecificQuestions = false;
+    let processingAllDueToNoSpecification = false;
+
+    if (scope && String(scope).toLowerCase() === 'all') {
+        questionIdsToFetchDetailsFor = allQuestionIdsInCurrentList;
+        console.log("Processing all questions due to 'scope=all'.");
+    } else if (requestedNumbers && requestedNumbers.length > 0) {
+        userRequestedSpecificQuestions = true;
+        const validIndices = requestedNumbers
+            .map(num => parseInt(num, 10) - 1)
+            .filter(index => !isNaN(index) && index >= 0 && index < totalQuestionsInList);
+        
+        if (validIndices.length === 0 && requestedNumbers.length > 0) { // User provided numbers, but all were invalid
+            result.responseText = `Số thứ tự câu hỏi bạn cung cấp không hợp lệ. Danh sách này có ${totalQuestionsInList} câu (từ 1 đến ${totalQuestionsInList}).`;
+        } else {
+            questionIdsToFetchDetailsFor = [...new Set(validIndices.map(index => allQuestionIdsInCurrentList[index]))];
         }
+        console.log(`Processing specific questions by numbers. IDs to fetch: ${JSON.stringify(questionIdsToFetchDetailsFor)}`);
+    } else {
+        // NEW BEHAVIOR: If no specific numbers and no "all" scope, default to all.
+        console.log("No specific numbers or 'all' scope provided. Defaulting to all questions.");
+        questionIdsToFetchDetailsFor = allQuestionIdsInCurrentList;
+        processingAllDueToNoSpecification = true; // Flag to potentially add a note in the response
+    }
+    
+    if (questionIdsToFetchDetailsFor.length > 0) {
+        try {
+            const objectIdsToQuery = questionIdsToFetchDetailsFor.map(id => new ObjectId(id));
+            const questionsFromDB = await db.collection(QUESTIONS_COLLECTION)
+                                        .find({ _id: { $in: objectIdsToQuery } })
+                                        .toArray();
 
-        const ids = questionData.map(item => new ObjectId(item.question_id));
+            const dbQuestionsMap = new Map(questionsFromDB.map(q => [q._id.toString(), q]));
+            
+            let itemsProcessedCounter = 0;
+            const iterationOrder = userRequestedSpecificQuestions ? questionIdsToFetchDetailsFor : allQuestionIdsInCurrentList.filter(id => questionIdsToFetchDetailsFor.includes(id));
 
-        const results = await db.collection(QUESTIONS_COLLECTION).find({ _id: { $in: ids } }).toArray();
-        result.responseText = "Đây là danh sách câu trả lời:\nn" + 
-         results.map(((q,index) => `${index + 1}. ${q.correct_answer}`)).join("\n") + "\n Bạn có muốn tôi check đáp án cho bạn hay muốn tôi giải thích câu nào thì cứ nói nhé !!!"
-   } catch (e) {
-        console.error("Error parsing question_data from context:", e);
-        result.responseText = "Có lỗi xảy ra khi đọc dữ liệu câu hỏi từ context.";
-        return result;
-   }
+            iterationOrder.forEach(qId => {
+                const questionDetail = dbQuestionsMap.get(qId);
+                if (questionDetail) {
+                    itemsProcessedCounter++;
+                    const originalIndex = allQuestionIdsInCurrentList.indexOf(qId);
+                    const questionNumberLabel = originalIndex + 1; 
+
+                    if (type === 'answer') {
+                        if (responseLines.length === 0) {
+                            let header = "Đây là đáp án:";
+                            if (processingAllDueToNoSpecification && totalQuestionsInList > 1) { // Add note if showing all by default for multiple questions
+                                header = `Bạn không chỉ định câu cụ thể nên tôi hiển thị đáp án cho tất cả ${totalQuestionsInList} câu:`;
+                            } else if (userRequestedSpecificQuestions) {
+                                header = "Đáp án cho các câu bạn chọn:";
+                            }
+                            responseLines.push(header);
+                        }
+                        responseLines.push(`Câu ${questionNumberLabel}: ${questionDetail.correct_answer || 'N/A (Không có đáp án)'}`);
+                    } else { // type === 'explanation'
+                         if (responseLines.length === 0) {
+                            let header = "Đây là giải thích:";
+                             if (processingAllDueToNoSpecification && totalQuestionsInList > 1) {
+                                header = `Bạn không chỉ định câu cụ thể nên tôi hiển thị giải thích cho tất cả ${totalQuestionsInList} câu:`;
+                            } else if (userRequestedSpecificQuestions) {
+                                header = "Giải thích cho các câu bạn chọn:";
+                            }
+                            responseLines.push(header);
+                        }
+                        responseLines.push(`Câu ${questionNumberLabel} (${questionDetail.content ? questionDetail.content.substring(0,40)+'...' : 'Nội dung câu hỏi'}):\n  Đáp án: ${questionDetail.correct_answer || 'N/A'}\n  Giải thích: ${questionDetail.explanation || 'Không có giải thích chi tiết.'}`);
+                    }
+                } else {
+                    const originalIndex = allQuestionIdsInCurrentList.indexOf(qId);
+                    responseLines.push(`Câu ${originalIndex + 1}: Không tìm thấy chi tiết cho câu hỏi ID ${qId} trong cơ sở dữ liệu.`);
+                }
+            });
+
+            if (itemsProcessedCounter > 0) {
+                result.responseText = responseLines.join('\n\n');
+                 if (type === 'answer') {
+                    result.responseText += "\n\nBạn có muốn xem giải thích cho những câu này hoặc các câu khác không?";
+                } else {
+                    result.responseText += "\n\nBạn có câu hỏi nào khác không?";
+                }
+            } else if (result.responseText === "Lỗi không xác định khi xử lý yêu cầu của bạn." && requestedNumbers.length > 0) { 
+                // This means numbers were given, but none were valid AND no items were processed.
+                // The earlier check for `validIndices.length === 0` should have set a more specific message.
+                // This is a fallback.
+                 result.responseText = `Không có câu hỏi hợp lệ nào được tìm thấy từ các số bạn cung cấp.`;
+            } else if (result.responseText === "Lỗi không xác định khi xử lý yêu cầu của bạn."){
+                 result.responseText = `Tôi không tìm thấy thông tin ${type === 'answer' ? 'đáp án' : 'giải thích'} cho các câu hỏi được yêu cầu.`;
+            }
+        } catch (e) {
+            console.error(`Error fetching details for ${type}:`, e);
+            result.responseText = `Đã có lỗi xảy ra khi tôi cố gắng tìm ${type === 'answer' ? 'đáp án' : 'giải thích'} cho bạn.`;
+        }
+    } else if (result.responseText === "Lỗi không xác định khi xử lý yêu cầu của bạn.") {
+        // This path is taken if `questionIdsToFetchDetailsFor` is empty AND no other responseText has been set yet.
+        // This typically happens if `requestedNumbers` were provided but all were invalid, and the specific message for that was set.
+        // If somehow it's still the default error, set a generic one.
+        result.responseText = "Không có câu hỏi nào được chọn để xử lý.";
+    }
 
 
-   const requestedNumbers = parameters.question_numbers || []; // Mảng số thứ tự
-   const scope = parameters.scope; // Ví dụ: "all"
-   const responseLines = [];
-   const totalQuestions = questionData.length;
+    const sessionInfo = extractSessionInfo(sessionPath);
+    const contextFullName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_list_followup');
 
-   let indicesToProcess = [];
+    const contextParametersToMaintain = {
+        concept: parameters.concept,
+        number: parameters.number,
+        question_type: parameters.question_type,
+        topic: parameters.topic,
+        question_data: questionDataFromParams,
+    };
 
-   if (scope && String(scope).toLowerCase() === 'all') {
-       indicesToProcess = Array.from({ length: totalQuestions }, (_, i) => i); // Mảng [0, 1, ..., N-1]
-   } else if (requestedNumbers && requestedNumbers.length > 0) {
-       // Chuyển số thứ tự người dùng (1-based) thành index (0-based)
-       indicesToProcess = requestedNumbers.map(num => parseInt(num, 10) - 1)
-                                       .filter(index => !isNaN(index) && index >= 0 && index < totalQuestions);
-       indicesToProcess = [...new Set(indicesToProcess)]; // Loại bỏ trùng lặp
-   } else {
-        // Nếu không chỉ định số câu hoặc 'tất cả', có thể hỏi lại hoặc không làm gì
-        result.responseText = `Bạn muốn xem ${type === 'answer' ? 'đáp án' : 'giải thích'} cho câu số mấy trong danh sách (${totalQuestions} câu)?`;
-         // Vẫn reset context để duy trì
-         const sessionInfo = extractSessionInfo(sessionPath);
-         const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'context_question_list_active');
-         result.outputContexts.push({
-              name: contextName,
-              lifespanCount: 5,
-              parameters: context.parameters // Giữ nguyên data cũ
-         });
-        return result;
-   }
+    result.outputContexts.push({
+        name: contextFullName,
+        lifespanCount: 5,
+        parameters: contextParametersToMaintain
+    });
+    console.log("Re-setting context:", contextFullName, "with params:", JSON.stringify(contextParametersToMaintain));
 
-   if (indicesToProcess.length === 0) {
-        result.responseText = "Số thứ tự câu hỏi không hợp lệ hoặc không được cung cấp.";
-        // Vẫn reset context
-         const sessionInfo = extractSessionInfo(sessionPath);
-         const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'context_question_list_active');
-         result.outputContexts.push({
-              name: contextName,
-              lifespanCount: 5,
-              parameters: context.parameters
-         });
-        return result;
-   }
-
-   indicesToProcess.sort((a, b) => a - b); // Sắp xếp index
-
-   if (type === 'answer') {
-       responseLines.push("Đáp án:");
-       indicesToProcess.forEach(index => {
-           const question = questionData[index];
-           responseLines.push(`Câu ${index + 1}: ${question.correct_answer || 'N/A'}`);
-       });
-   } else { // type === 'explanation'
-       responseLines.push("Giải thích:");
-       indicesToProcess.forEach(index => {
-           const question = questionData[index];
-           responseLines.push(`Câu ${index + 1}: ${question.explanation || 'Không có giải thích.'}`);
-       });
-   }
-
-   result.responseText = responseLines.join('\n');
-
-   // Reset context để duy trì danh sách
-   const sessionInfo = extractSessionInfo(sessionPath);
-   const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'context_question_list_active');
-   result.outputContexts.push({
-       name: contextName,
-       lifespanCount: 5, // Reset lifespan
-       parameters: context.parameters // Giữ nguyên question_data
-   });
-
-   return result;
+    return result;
 }
 
 async function handleAskAnswerForList(parameters, inputContexts, sessionPath) {
-    return await handleListQuery(parameters, inputContexts, sessionPath, 'answer');
+    // inputContexts is available if needed for more complex logic, but handleListQuery
+    // primarily relies on `parameters` for context data.
+    return await handleListQuery(parameters, sessionPath, 'answer');
 }
 
 async function handleAskExplanationForList(parameters, inputContexts, sessionPath) {
-    return await handleListQuery(parameters, inputContexts, sessionPath, 'explanation');
+    return await handleListQuery(parameters, sessionPath, 'explanation');
 }
+
+
+// --- Webhook Endpoint (Illustrative) ---
+// Ensure connectDB() is called once when your app starts
+// Example:
+// 
 
 // --- Các hàm tiện ích mới hoặc được điều chỉnh cho handleCombinedRequest ---
 
@@ -550,7 +600,7 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
             switch (action) {
                 case 'explain':
                     const explainParams = { concept: mainConceptParam };
-                    const definitionResult = await handleAskDefinition(explainParams, sessionPath, true); // true for detailed
+                    const definitionResult = await handleGiveDefinition(explainParams, sessionPath, true); // true for detailed
                     if (definitionResult.responseText) combinedResponseParts.push(definitionResult.responseText);
                     if (definitionResult.outputContexts) result.outputContexts.push(...definitionResult.outputContexts);
                     break;
@@ -558,7 +608,7 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                 case 'example':
                     // Ví dụ: "so sánh A và B, sau đó cho ví dụ về A". `mainConceptParam` (A) được dùng.
                     const exampleParams = { concept: mainConceptParam };
-                    const exampleResult = await handleAskExample(exampleParams); // handleAskExample không dùng sessionPath trong signature
+                    const exampleResult = await handleGiveExample(exampleParams); 
                     if (exampleResult.responseText) combinedResponseParts.push(exampleResult.responseText);
                     if (exampleResult.outputContexts) result.outputContexts.push(...exampleResult.outputContexts);
                     break;
@@ -571,7 +621,7 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                         combinedResponseParts.push(`Để so sánh, tôi cần hai khái niệm. Bạn mới chỉ cung cấp "${concept1ForCompare || concept2ForCompare || 'một vài'}" khái niệm.`);
                     } else {
                         const compareP = { concept: [concept1ForCompare, concept2ForCompare] };
-                        const comparisonResult = await handleAskComparison(compareP);
+                        const comparisonResult = await handleComparison(compareP);
                         if (comparisonResult.responseText) combinedResponseParts.push(comparisonResult.responseText);
                         if (comparisonResult.outputContexts) result.outputContexts.push(...comparisonResult.outputContexts);
                     }
@@ -745,69 +795,175 @@ function parseUserMultipleChoiceQuestion(fullText) {
 
 // --- Hàm xử lý cho Action: answer_theory_question ---
 // (Xử lý câu hỏi lý thuyết/mở do người dùng đặt)
-async function handleAskTheoryQuestion(parameters) {
+async function handleAskTheoryQuestion(parameters, sessionPath) { // sessionPath có thể không cần nếu không đặt context ở đây
     const result = { responseText: "Xin lỗi, tôi chưa thể trả lời câu hỏi này.", outputContexts: [] };
-    // Giả sử parameter chứa câu hỏi là 'user_question' hoặc tên tương tự bạn đặt trong Intent
-    const userQuestion = parameters.user_question || parameters.user_full_question; // Lấy Paremater chứa câu hỏi
+    // Lấy parameter chứa câu hỏi từ Dialogflow, dựa trên JSON bạn cung cấp là 'theory_question'
+    const userQuestion = parameters.theory_question;
 
     if (!userQuestion) {
         result.responseText = "Bạn muốn hỏi tôi điều gì cụ thể?";
         return result;
     }
 
-    console.log(`Handling User Theory Question: ${userQuestion}`);
-    const keywords = extractKeywords(userQuestion);
-    console.log("Extracted keywords:", keywords);
-
-    if (keywords.length === 0) {
-        result.responseText = "Câu hỏi của bạn có vẻ hơi chung chung. Bạn có thể nói rõ hơn được không?";
-        return result;
-    }
-
+    console.log(`Handling User Theory Question (via theory_question param): "${userQuestion}"`);
     try {
-        const conceptsCollection = db.collection(CONCEPTS_COLLECTION);
+    // BƯỚC 1: CỐ GẮNG TÌM CÂU HỎI KHỚP HOÀN TOÀN/GẦN ĐÚNG TRONG CSDL QUESTIONS
+    // (Logic này có thể được tách ra hàm riêng nếu muốn)
         const questionsCollection = db.collection(QUESTIONS_COLLECTION);
+        const conceptsCollection = db.collection(CONCEPTS_COLLECTION);
         let foundAnswer = null;
 
-        // 1. Tìm trong Concepts (ưu tiên)
-        for (const keyword of keywords) {
-            const conceptDoc = await conceptsCollection.findOne({
-                $or: [
-                    { concept_id: { $regex: new RegExp(`^${keyword}$`, "i") } },
-                    { name: { $regex: new RegExp(keyword, "i") } },
-                    { aliases: { $regex: new RegExp(`^${keyword}$`, "i") } }
-                ]
-            });
-            if (conceptDoc) {
-                // Tìm thấy concept -> Ưu tiên trả về definition hoặc explanation
-                foundAnswer = `Về ${conceptDoc.name || keyword}: ${conceptDoc.definition || ''}\n\n${conceptDoc.explanation_detailed || ''}`;
-                // Có thể thêm logic kiểm tra từ khóa "ví dụ", "so sánh" ở đây nếu muốn
-                break; // Dừng lại khi tìm thấy concept khớp mạnh
+        // 1a. Phân tích xem có phải là câu hỏi trắc nghiệm người dùng tự đặt không
+        const parsedMCQ = parseUserMultipleChoiceQuestion(userQuestion); // Sử dụng câu hỏi gốc
+        const questionContentToSearchForMCQ = parsedMCQ.questionContent;
+        const userOptionsRaw = parsedMCQ.optionsRaw;
+        const isUserMCQ = parsedMCQ.isMultipleChoice;
+
+        if (isUserMCQ && questionContentToSearchForMCQ && userOptionsRaw.length > 0) {
+            console.log("Attempting to match user's input as a known MCQ...");
+            const queryContentRegex = new RegExp(questionContentToSearchForMCQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
+            const potentialDbMCQs = await questionsCollection.find({
+                type: "multiple_choice",
+                content: { $regex: queryContentRegex }
+            }).limit(5).toArray();
+
+            let bestMatch = null;
+            let highestMCQMatchScore = 0.75; // Ngưỡng
+
+            for (const dbMCQ of potentialDbMCQs) {
+                let currentOptionScore = 0;
+                if (dbMCQ.options && dbMCQ.options.length === userOptionsRaw.length) {
+                    let matchedOptions = 0;
+                    for (const userOptRaw of userOptionsRaw) {
+                        const userOptLetter = userOptRaw.substring(0, 1).toUpperCase();
+                        const userOptText = userOptRaw.substring(3).trim().toLowerCase();
+                        if (dbMCQ.options.some(dbOptRaw => {
+                            const dbOptLetter = dbOptRaw.substring(0, 1).toUpperCase();
+                            const dbOptText = dbOptRaw.substring(3).trim().toLowerCase();
+                            return dbOptLetter === userOptLetter && dbOptText.includes(userOptText);
+                        })) {
+                            matchedOptions++;
+                        }
+                    }
+                    currentOptionScore = matchedOptions / dbMCQ.options.length;
+                }
+                if (currentOptionScore >= highestMCQMatchScore) {
+                    highestMCQMatchScore = currentOptionScore;
+                    bestMCQMatch = dbMCQ;
+                }
+            }
+            if (bestMatch) {
+                console.log(`Step 1: Found similar MCQ in DB (_id: ${bestMatch._id})`);
+                foundAnswer = `Tôi tìm thấy câu hỏi này trong cơ sở dữ liệu của mình:\n"${bestMatch.content}"\n${(bestMatch.options || []).join("\n")}\nĐáp án đúng là: **${bestMatch.correct_answer}**.\n*Giải thích:* ${bestMatch.explanation || "Không có giải thích chi tiết."}`;
             }
         }
 
-        // 2. Nếu không tìm thấy trong Concepts, tìm trong Questions (loại theory)
+        // 1b. Nếu không phải MCQ hoặc không tìm thấy MCQ khớp, tìm câu hỏi lý thuyết khớp trong CSDL questions
         if (!foundAnswer) {
-            // Xây dựng query tìm kiếm text (nếu đã tạo text index) hoặc regex
-            // Ví dụ dùng regex:
-            const regexKeywords = keywords.map(k => new RegExp(k, "i"));
+            const contentToSearchForTheory = questionContentToSearchForMCQ || userQuestion;
+            const contentRegexForTheory = new RegExp(contentToSearchForTheory.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
             const dbTheoryQuestion = await questionsCollection.findOne({
                 type: "theory",
-                content: { $in: regexKeywords } // Tìm câu hỏi chứa bất kỳ từ khóa nào
-                // Hoặc dùng $text search: $text: { $search: keywords.join(" ") }
+                content: { $regex: contentRegexForTheory }
             });
 
             if (dbTheoryQuestion) {
-                foundAnswer = `Liên quan đến câu hỏi của bạn, tôi có thông tin sau trong CSDL câu hỏi lý thuyết:\n**Hỏi:** "${dbTheoryQuestion.content}"\n**Đáp:** ${dbTheoryQuestion.correct_answer}\n${dbTheoryQuestion.explanation || ""}`;
+                console.log(`Step 1: Found similar theory question in DB (_id: ${dbTheoryQuestion._id})`);
+                foundAnswer = `Tôi tìm thấy một câu hỏi tương tự trong cơ sở dữ liệu:\n**Hỏi:** "${dbTheoryQuestion.content}"\n**Đáp:** ${dbTheoryQuestion.correct_answer}\n${dbTheoryQuestion.explanation || ""}`;
             }
         }
 
-        // 3. Trả lời
+        // BƯỚC 2: NẾU KHÔNG TÌM THẤY CÂU HỎI KHỚP, TÌM THEO TỪ KHÓA TRONG CONCEPTS
+        if (!foundAnswer) {
+            console.log("Step 1: No direct question match. Proceeding to Step 2: Keyword search in concepts.");
+            const keywords = extractKeywords(userQuestion); // Dùng câu hỏi gốc để trích từ khóa
+            console.log("Extracted keywords for concept search:", keywords);
+
+            if (keywords.length > 0) {
+                // Cố gắng tìm một concept chính trước
+                let mainConceptDoc = null;
+                for (const keyword of keywords) {
+                    const conceptDoc = await findConcept(keyword, conceptsCollection);
+                    if (conceptDoc) {
+                        mainConceptDoc = conceptDoc;
+                        break;
+                    }
+                }
+
+                if (mainConceptDoc) {
+                    const conceptDisplayName = mainConceptDoc.name || keywords.find(k => String(k).toLowerCase() === String(mainConceptDoc.concept_id).toLowerCase() || (mainConceptDoc.aliases && mainConceptDoc.aliases.map(a => String(a).toLowerCase()).includes(String(k).toLowerCase()))) || keywords[0];
+
+                    foundAnswer = `Về khái niệm "${conceptDisplayName}", tôi có thông tin sau:\n${mainConceptDoc.definition || ''}`;
+                    if (mainConceptDoc.explanation_detailed) {
+                        foundAnswer += `\n\nGiải thích chi tiết hơn: ${mainConceptDoc.explanation_detailed}`;
+                    }
+
+                    // Kiểm tra các từ khóa phụ trong câu hỏi của người dùng để cung cấp thông tin cụ thể hơn
+                    const userQueryLower = userQuestion.toLowerCase();
+                    let providedSpecificInfo = false;
+
+                    if ((userQueryLower.includes("ví dụ") || userQueryLower.includes("cho ví dụ")) && mainConceptDoc.examples && mainConceptDoc.examples.length > 0) {
+                        const exampleText = mainConceptDoc.examples.slice(0, 2).map(ex => `- (${ex.type || 'chung'}) ${ex.content}`).join('\n');
+                        foundAnswer += `\n\nVí dụ liên quan:\n${exampleText}`;
+                        providedSpecificInfo = true;
+                    }
+
+                    // Xử lý yêu cầu so sánh nếu có (phức tạp hơn vì cần concept thứ 2)
+                    const comparisonMatch = userQueryLower.match(/so sánh(?: nó)? với ([^\s?.,]+)/i);
+                    if (comparisonMatch && comparisonMatch[1]) {
+                        const concept2ToCompare = comparisonMatch[1];
+                        const concept2Doc = await findConcept(concept2ToCompare, conceptsCollection);
+                        if (concept2Doc) {
+                            let comparisonText = findComparisonTextInDoc(mainConceptDoc, concept2Doc.concept_id, concept2Doc.name);
+                            if (!comparisonText) {
+                                comparisonText = findComparisonTextInDoc(concept2Doc, mainConceptDoc.concept_id, mainConceptDoc.name);
+                            }
+                            if (comparisonText) {
+                                foundAnswer += `\n\nSo sánh với ${concept2Doc.name || concept2ToCompare}:\n${comparisonText}`;
+                                providedSpecificInfo = true;
+                            } else {
+                                 foundAnswer += `\n\n(Tôi chưa có thông tin so sánh trực tiếp với "${concept2Doc.name || concept2ToCompare}".)`;
+                            }
+                        } else {
+                             foundAnswer += `\n\n(Tôi không tìm thấy thông tin về "${concept2ToCompare}" để so sánh.)`;
+                        }
+                    } else if ((userQueryLower.includes("so sánh") || userQueryLower.includes("khác gì")) && mainConceptDoc.comparison_points && mainConceptDoc.comparison_points.length > 0 && !providedSpecificInfo) {
+                        // Nếu chỉ có 1 concept và yêu cầu so sánh, trả về các so sánh có sẵn
+                        const availableComparisons = mainConceptDoc.comparison_points
+                            .map(cp => `Với ${cp.compare_with_concept_id || cp.compare_with_name || 'khái niệm khác'}: ${cp.comparison_text}`)
+                            .join('\n');
+                        foundAnswer += `\n\n${mainConceptDoc.name || keyword} có thể được so sánh như sau:\n${availableComparisons}`;
+                        providedSpecificInfo = true;
+                    }
+                    // Bạn có thể thêm các từ khóa khác như "mục đích", "cách phòng chống"...
+
+                }
+            }
+        }
+
+        // BƯỚC 3: TRẢ LỜI CUỐI CÙNG
         if (foundAnswer) {
             result.responseText = foundAnswer;
         } else {
-            result.responseText = `Xin lỗi, tôi chưa có đủ thông tin để trả lời câu hỏi: "${userQuestion}".`;
+            result.responseText = `Xin lỗi, tôi chưa có đủ thông tin để trả lời câu hỏi: "${userQuestion}". Bạn có thể thử hỏi về một khái niệm bảo mật cụ thể mà bạn quan tâm không?`;
         }
+
+        // Đặt output context (ví dụ: theory_followup như trong JSON request)
+        // Bạn có thể lưu các keywords hoặc concept chính tìm được vào context nếu muốn
+        const sessionInfo = extractSessionInfo(sessionPath);
+        console.log("Session Info:", sessionInfo);
+
+        const contextId = 'theory_followup'; // Tên context từ JSON request
+        const contextFullName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, contextId);
+        result.outputContexts.push({
+            name: contextFullName,
+            lifespanCount: 2, // Hoặc một giá trị phù hợp
+            parameters: {
+                last_user_question: userQuestion, // Lưu lại câu hỏi
+                // keywords_found: keywords // Lưu lại keywords nếu muốn
+            }
+        });
+
 
     } catch (error) {
         console.error("Error handling User Theory Question:", error);
@@ -818,97 +974,125 @@ async function handleAskTheoryQuestion(parameters) {
 
 // --- Hàm xử lý cho Action: answer_quiz_question ---
 // (Xử lý câu hỏi TRẮC NGHIỆM do người dùng đặt - Chỉ tìm câu hỏi giống trong DB)
-async function handleAskQuizQuestionByUser(parameters) {
-    const result = { responseText: "Xin lỗi, tôi chưa thể trả lời câu hỏi trắc nghiệm này.", outputContexts: [] };
-    // Giả sử parameter chứa toàn bộ câu hỏi + lựa chọn là 'user_mc_question'
-    const userMCQuestionFull = parameters.user_mc_question || parameters.user_full_question;
+async function handleAskQuizQuestion(parameters, sessionPath) {
+    const result = { responseText: "Xin lỗi, tôi chưa thể đánh giá câu hỏi trắc nghiệm này.", outputContexts: [] };
 
-    if (!userMCQuestionFull) {
-        result.responseText = "Bạn vui lòng cung cấp câu hỏi trắc nghiệm và các lựa chọn.";
+    const userQuestionContent = parameters.question;
+    const userOptions = [];
+    if (parameters.answerA) userOptions.push(String(parameters.answerA).trim());
+    if (parameters.answerB) userOptions.push(String(parameters.answerB).trim());
+    if (parameters.answerC) userOptions.push(String(parameters.answerC).trim());
+    if (parameters.answerD) userOptions.push(String(parameters.answerD).trim());
+    // Thêm answerE, answerF... nếu có
+
+    if (!userQuestionContent || userOptions.length < 2) { // Cần ít nhất 2 lựa chọn
+        result.responseText = "Bạn vui lòng cung cấp đầy đủ nội dung câu hỏi và ít nhất hai lựa chọn (A, B).";
         return result;
     }
 
-    console.log(`Handling User MCQ: ${userMCQuestionFull}`);
-    const parsedMCQ = parseUserMultipleChoiceQuestion(userMCQuestionFull);
-
-    // Chỉ xử lý nếu parse thành công ra câu hỏi và lựa chọn
-    if (!parsedMCQ.isMultipleChoice || !parsedMCQ.questionContent || parsedMCQ.options.length === 0) {
-        console.log("Could not parse as MCQ, treating as theory question instead.");
-        // Chuyển sang xử lý như câu hỏi lý thuyết
-        // Tạo parameters giả lập cho handleAskTheoryQuestion
-        const theoryParams = { user_question: userMCQuestionFull };
-        return await handleAskTheoryQuestion(theoryParams);
-    }
-
-    console.log("Parsed MCQ Content:", parsedMCQ.questionContent);
-    console.log("Parsed MCQ Options:", parsedMCQ.optionsRaw);
+    console.log(`Handling User Provided MCQ: "${userQuestionContent}"`);
+    console.log("User Provided Options:", userOptions);
 
     try {
         const questionsCollection = db.collection(QUESTIONS_COLLECTION);
+        const conceptsCollection = db.collection(CONCEPTS_COLLECTION); // Cho fallback
+        let foundAnswer = null;
 
-        // Tìm câu hỏi trắc nghiệm rất giống trong CSDL
-        // Sử dụng $text search nếu bạn đã tạo index text trên trường 'content'
-        // Hoặc dùng regex như ví dụ dưới (ít hiệu quả hơn với câu dài)
-        const queryContent = parsedMCQ.questionContent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape regex chars
+        // Chuẩn hóa nội dung câu hỏi người dùng để tìm kiếm
+        const queryContentForSearch = String(userQuestionContent).trim();
+        // Tạo regex để tìm kiếm linh hoạt hơn, thoát các ký tự đặc biệt
+        const contentRegex = new RegExp(queryContentForSearch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i");
+
+        // Tìm các câu hỏi tiềm năng trong CSDL
         const potentialMatches = await questionsCollection.find({
             type: "multiple_choice",
-            // $text: { $search: `"${queryContent}"` } // Dùng text search nếu có
-             content: { $regex: new RegExp(queryContent, "i") } // Dùng regex (kém chính xác hơn)
-        }).limit(5).toArray(); // Giới hạn số lượng kiểm tra
+            content: { $regex: contentRegex }
+        }).limit(10).toArray(); // Giới hạn số lượng kiểm tra
 
         let bestMatch = null;
-        let highestScore = 0.75; // Ngưỡng tương đồng tối thiểu (ví dụ)
+        let highestMatchScore = 0.75; // Ngưỡng tương đồng tối thiểu (ví dụ 75%)
 
-        // Logic so sánh đơn giản - có thể cần cải thiện
         for (const dbMCQ of potentialMatches) {
-            let currentScore = 0;
-            // Đo độ tương đồng nội dung câu hỏi (ví dụ: dùng hàm tính độ tương đồng chuỗi)
-            // const contentSimilarity = calculateStringSimilarity(parsedMCQ.questionContent, dbMCQ.content);
-            // if (contentSimilarity < 0.8) continue; // Bỏ qua nếu nội dung quá khác
-
-            // So sánh options
-            if (dbMCQ.options && dbMCQ.options.length === parsedMCQ.optionsRaw.length) {
-                let optionMatches = 0;
-                parsedMCQ.optionsRaw.forEach(userOptRaw => {
-                     // Kiểm tra xem option của user có trong options của DB không (so sánh phần text)
-                    const userOptLetter = userOptRaw.substring(0, 1).toUpperCase();
-                    const userOptText = userOptRaw.substring(3).trim().toLowerCase();
-                    if (dbMCQ.options.some(dbOptRaw => {
-                        const dbOptLetter = dbOptRaw.substring(0, 1).toUpperCase();
-                        const dbOptText = dbOptRaw.substring(3).trim().toLowerCase();
-                        return dbOptLetter === userOptLetter && dbOptText.includes(userOptText); // So sánh đơn giản
-                    })) {
-                        optionMatches++;
-                    }
-                });
-                 currentScore = optionMatches / dbMCQ.options.length;
+            if (!dbMCQ.options || dbMCQ.options.length !== userOptions.length) {
+                continue; // Bỏ qua nếu số lượng lựa chọn không khớp
             }
 
-            if (currentScore >= highestScore) {
-                 highestScore = currentScore;
-                 bestMatch = dbMCQ;
+            let matchedOptionsCount = 0;
+            // So sánh từng lựa chọn
+            for (let i = 0; i < userOptions.length; i++) {
+                const userOptFull = userOptions[i]; // Ví dụ: "A. Ổ cứng cục bộ"
+                const dbOptFull = dbMCQ.options[i];   // Ví dụ: "A. Ổ cứng cục bộ"
+
+                // So sánh đơn giản dựa trên việc có bao gồm hay không (có thể cần tinh vi hơn)
+                // Tách chữ cái và nội dung
+                const userOptLetter = userOptFull.substring(0, 1).toUpperCase();
+                const userOptText = userOptFull.substring(userOptFull.indexOf('.') + 1).trim().toLowerCase();
+
+                const dbOptLetter = dbOptFull.substring(0, 1).toUpperCase();
+                const dbOptText = dbOptFull.substring(dbOptFull.indexOf('.') + 1).trim().toLowerCase();
+
+                // Yêu cầu cả chữ cái và nội dung phải tương đồng
+                if (userOptLetter === dbOptLetter && dbOptText.includes(userOptText)) { // Hoặc một hàm so sánh tương đồng chuỗi tốt hơn
+                    matchedOptionsCount++;
+                }
+            }
+
+            const currentMatchScore = matchedOptionsCount / userOptions.length;
+
+            if (currentMatchScore >= highestMatchScore) {
+                highestMatchScore = currentMatchScore;
+                bestMatch = dbMCQ;
             }
         }
-
 
         if (bestMatch) {
-             console.log(`Found similar MCQ in DB (ID: ${bestMatch._id}) with score: ${highestScore}`);
-             result.responseText = `Tôi tìm thấy câu hỏi tương tự trong cơ sở dữ liệu:\n"${bestMatch.content}"\nĐáp án đúng là: **${bestMatch.correct_answer}**\n*Giải thích:* ${bestMatch.explanation || "Không có giải thích chi tiết."}`;
+            console.log(`Found similar MCQ in DB (_id: ${bestMatch._id}) with option match score: ${highestMatchScore}`);
+            foundAnswer = `Tôi tìm thấy câu hỏi này trong cơ sở dữ liệu của mình:\n**Hỏi:** "${bestMatch.content}"\n${(bestMatch.options || []).map(opt => `  ${opt}`).join("\n")}\n**Đáp án đúng là:** ${bestMatch.correct_answer}\n*Giải thích:* ${bestMatch.explanation || "Hiện chưa có giải thích chi tiết cho câu này."}`;
         } else {
-            console.log("No similar MCQ found in DB.");
-            result.responseText = `Xin lỗi, tôi không tìm thấy câu hỏi trắc nghiệm nào giống với câu hỏi của bạn trong cơ sở dữ liệu của mình để có thể đưa ra đáp án chính xác.`;
-             // Có thể gợi ý hỏi về concept liên quan
-             const keywords = extractKeywords(parsedMCQ.questionContent);
-             if(keywords.length > 0) {
-                 const conceptDoc = await findConcept(keywords[0], db.collection(CONCEPTS_COLLECTION));
-                 if(conceptDoc) {
-                     result.responseText += `\nTuy nhiên, bạn có muốn tìm hiểu về khái niệm "${conceptDoc.name}" không?`;
-                 }
-             }
+            console.log("No highly similar MCQ found in DB by content and options.");
+            // Nếu không tìm thấy câu trắc nghiệm khớp, có thể thử tìm thông tin lý thuyết liên quan
+            const keywords = extractKeywords(userQuestionContent);
+            if (keywords.length > 0) {
+                let theoryInfo = "Xin lỗi, tôi không tìm thấy câu hỏi trắc nghiệm nào hoàn toàn giống với câu hỏi của bạn. ";
+                for (const keyword of keywords) {
+                    const conceptDoc = await findConcept(keyword, conceptsCollection);
+                    if (conceptDoc) {
+                        theoryInfo += `Tuy nhiên, tôi có thông tin về khái niệm "${conceptDoc.name}":\n${conceptDoc.definition}\nBạn có thể tham khảo thêm nhé.`;
+                        // Chỉ lấy concept đầu tiên tìm được cho ngắn gọn
+                        break;
+                    }
+                }
+                if (theoryInfo.includes("Tuy nhiên")) {
+                    foundAnswer = theoryInfo;
+                } else {
+                    foundAnswer = "Xin lỗi, tôi không tìm thấy câu hỏi trắc nghiệm nào giống với câu hỏi của bạn và cũng chưa có thông tin lý thuyết liên quan rõ ràng.";
+                }
+            } else {
+                 foundAnswer = "Xin lỗi, tôi không tìm thấy câu hỏi trắc nghiệm nào giống với câu hỏi của bạn trong cơ sở dữ liệu.";
+            }
         }
 
+        result.responseText = foundAnswer;
+
+        // Đặt output context (ví dụ: quiz_followup như trong JSON request)
+        const sessionInfo = extractSessionInfo(sessionPath);
+        const contextId = 'quiz_followup'; // Hoặc tên context bạn muốn
+        const contextFullName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, contextId);
+        result.outputContexts.push({
+            name: contextFullName,
+            lifespanCount: 2,
+            parameters: { // Lưu lại các parameter gốc mà Dialogflow gửi
+                question: userQuestionContent,
+                answerA: parameters.answerA,
+                answerB: parameters.answerB,
+                answerC: parameters.answerC,
+                answerD: parameters.answerD,
+            }
+        });
+
+
     } catch (error) {
-        console.error("Error handling User MCQ:", error);
+        console.error("Error handling User Provided MCQ:", error);
         result.responseText = "Đã có lỗi xảy ra khi tôi cố gắng tìm câu trả lời cho câu hỏi trắc nghiệm của bạn.";
     }
     return result;
@@ -936,16 +1120,16 @@ app.post('/webhook', async (req, res) => {
      try {
           switch (actionName) {
             case 'give_definition':
-                handlerResult = await handleAskDefinition(parameters, sessionPath, false);
+                handlerResult = await handleGiveDefinition(parameters, sessionPath, false);
                   break;
               case 'give_definition_detailed':
-                handlerResult = await handleAskDefinition(parameters, sessionPath, true);
+                handlerResult = await handleGiveDefinition(parameters, sessionPath, true);
                   break;
             case 'compare_topics':
-                handlerResult = await handleAskComparison(parameters);
+                handlerResult = await handleComparison(parameters);
                 break;
             case 'give_example': // Bạn có thể gộp nếu logic xử lý ví dụ là chung
-                handlerResult = await handleAskExample(parameters); // Hàm này cần xử lý cả context
+                handlerResult = await handleGiveExample(parameters); // Hàm này cần xử lý cả context
                 break;
             case 'handle_combined_request':
                 handlerResult = await handleCombinedRequest(parameters, sessionPath);
@@ -955,15 +1139,45 @@ app.post('/webhook', async (req, res) => {
                 break;
             case 'quiz_answer':
                 handlerResult = await handleAskAnswerForList(parameters, inputContexts, sessionPath);
-                break;
+                  break;
+                  case 'decline_quiz_explanation_after_answer': // Hoặc tên action bạn đặt cho Intent "No"
+                  console.log("User declined explanation after answers.");
+                  handlerResult.responseText = "Được rồi. Bạn có cần tôi hỗ trợ gì khác không?"; // Hoặc một câu chào kết thúc phù hợp
+  
+                  const sessionInfoNo = extractSessionInfo(sessionPath);
+                  
+                  // 1. Xóa context xác nhận vì nó đã được xử lý
+                  const confirmContextNameToClear = buildContextName(sessionInfoNo.projectId, sessionInfoNo.sessionId, 'quiz_explanation_confirm');
+                  
+                  // 2. Quyết định về context quiz_list_followup:
+                  // Option A: Để quiz_list_followup tự hết hạn hoặc người dùng tự kết thúc bằng một intent khác.
+                  // Option B: Chủ động làm mới quiz_list_followup nếu bạn muốn người dùng có thể hỏi lại về quiz đó.
+                  // Option C: Chủ động xóa quiz_list_followup nếu "không" đồng nghĩa với việc kết thúc hoàn toàn với quiz này.
+  
+                  // Ví dụ: Xóa context xác nhận và không làm gì với quiz_list_followup (để nó tự nhiên)
+                  handlerResult.outputContexts = [
+                      { name: confirmContextNameToClear, lifespanCount: 0, parameters: {} }
+                      // Nếu bạn muốn làm mới quiz_list_followup, bạn cần lấy parameters của nó
+                      // từ `inputContexts` hoặc `parameters` (nếu Dialogflow truyền) và đặt lại.
+                      // Ví dụ làm mới (cần cẩn thận để lấy đúng parameters):
+                      // const activeQuizContext = inputContexts.find(ctx => ctx.name.endsWith('/contexts/quiz_list_followup'));
+                      // if (activeQuizContext) {
+                      //     handlerResult.outputContexts.push({
+                      //         name: activeQuizContext.name,
+                      //         lifespanCount: 5, // Làm mới lifespan
+                      //         parameters: activeQuizContext.parameters
+                      //     });
+                      // }
+                  ];
+                  break;
             case 'explain_quiz':
                 handlerResult = await handleAskExplanationForList(parameters, inputContexts, sessionPath);
                   break;
               case 'answer_quiz_question':
-                handlerResult = await handleAskQuizQuestion(parameters, inputContexts, sessionPath);
+                handlerResult = await handleAskQuizQuestion(parameters, sessionPath);
                   break;
               case 'answer_theory_question':
-                handlerResult = await handleAskTheoryQuestion(parameters, inputContexts, sessionPath);
+                handlerResult = await handleAskTheoryQuestion(parameters, sessionPath);
                   break;
               case 'submit_quiz_answer':
                   handlerResult = await handleSubmitQuizQuestion(parameters, inputContexts, sessionPath);
