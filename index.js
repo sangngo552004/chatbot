@@ -353,7 +353,7 @@ async function handleRequestQuestionList(parameters, sessionPath) {
 
         } else {
             const conceptName = Array.isArray(parameters.concept) ? parameters.concept[0] : parameters.concept;
-            result.responseText = `Xin lỗi, tôi không tìm thấy câu hỏi trắc nghiệm nào về chủ đề "${conceptName || 'bạn yêu cầu'}".`;
+            result.responseText = `Xin lỗi, tôi không tìm thấy câu hỏi ${String(parameters.question_type) === 'theory' ? 'lý thuyết' : 'trắc nghiệm'} nào về chủ đề "${conceptName || 'bạn yêu cầu'}".`;
         }
     } catch (error) {
         console.error("Error handling RequestQuestionList:", error);
