@@ -321,7 +321,15 @@ async function handleRequestQuestionList(parameters, sessionPath) {
                 return questionBlock;
             }).join('\n\n');
 
-            result.responseText = `Đây là ${questions.length} câu hỏi theo yêu cầu của bạn:\n\n${formattedQuestions}\n\nBạn có muốn xem đáp án cho câu nào không?`;
+            if (requestedNumber > maxQuestions) {
+                result.responseText = `Hệ thống chỉ hiển thị tối đa ${maxQuestions} câu hỏi. Đây là ${maxQuestions} câu hỏi về "${parameters.concept}":\n\n${formattedQuestions}`;
+            } else {
+                result.responseText = `Đây là ${questions.length} câu hỏi về "${parameters.concept}":\n\n${formattedQuestions}`;
+            }
+
+            // result.responseText = `Đây là ${questions.length} câu hỏi theo yêu cầu của bạn:\n\n${formattedQuestions}\n\nBạn có muốn xem đáp án cho câu nào không?`;
+            result.responseText += "\n\nBạn có muốn thử trả lời hay xem đáp án các câu trên không?";
+
 
             const sessionInfo = extractSessionInfo(sessionPath);
             const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_list_followup');
@@ -612,7 +620,7 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
             }
 
             switch (action) {
-                case 'explain':
+                case 'define':
                     const explainParams = { concept: mainConceptParam };
                     const definitionResult = await handleGiveDefinition(explainParams, sessionPath, true); // true for detailed
                     if (definitionResult.responseText) combinedResponseParts.push(definitionResult.responseText);
@@ -640,11 +648,12 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                         if (comparisonResult.outputContexts) result.outputContexts.push(...comparisonResult.outputContexts);
                     }
                     break;
-
-                case 'quiz':
+                    case 'list_theory':
+                case 'list_multichoice':
                     const quizP = {
                         concept: mainConceptParam,
-                        number: parameters.number || 3, // Default 3, or allow Dialogflow to pass 'number'
+                        number: parameters.number, // Default 3, or allow Dialogflow to pass 'number'
+                        question_type: action === 'list_theory' ? ['theory'] : ['multiple_choice'], // Default to multiple choice
                     };
                     const questionsCollection = db.collection(QUESTIONS_COLLECTION);
                     const currentActionIndex = actions.indexOf(action);
@@ -663,7 +672,7 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                         if (quizListResult.outputContexts) result.outputContexts.push(...quizListResult.outputContexts);
                     }
                     break;
-
+                    
                 case 'explain_quiz':
                     if (locallyGeneratedQuestions && locallyGeneratedQuestions.length > 0) {
                         const explanationText = formatQuizExplanations(locallyGeneratedQuestions, mainConceptDisplayName);
@@ -1373,8 +1382,8 @@ app.get('/', (req, res) => {
   res.status(200).json({ status: 'Webhook server is running' });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
-  console.log('Local server listening on port 3000');
+  console.log(`Local server listening on port ${PORT}`);
 
 });
