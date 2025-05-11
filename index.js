@@ -1261,8 +1261,6 @@ async function handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionP
             const dbQuestion = dbQuestionsMap[questionIdForThisAnswer];
 
             if (dbQuestion && dbQuestion.type === "theory") {
-                individualFeedback += `\n  Hỏi: "${dbQuestion.content}"`;
-                individualFeedback += `\n  Câu trả lời của bạn: "${userAnswerText}"`;
 
                 // --- Phần Đánh giá Dựa trên Từ khóa ---
                 const modelAnswerKeywords = dbQuestion.keywords_answer || extractKeywords(dbQuestion.correct_answer); // Giả sử có trường 'keywords_answer' trong DB hoặc trích xuất từ correct_answer
@@ -1278,19 +1276,18 @@ async function handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionP
                     const matchPercentage = (matchedKeywordsCount / modelAnswerKeywords.length) * 100;
 
                     if (matchPercentage >= 80) {
-                        individualFeedback += "\n  Nhận xét: Rất tốt! Câu trả lời của bạn rất đầy đủ và chính xác các ý chính.";
+                        individualFeedback += "\n  Rất tốt! Câu trả lời của bạn rất đầy đủ và chính xác các ý chính.";
                         overallCorrectCount++;
                     } else if (matchPercentage >= 50) {
-                        individualFeedback += "\n  Nhận xét: Khá tốt! Bạn đã nắm được phần lớn ý chính.";
+                        individualFeedback += "\n  Khá tốt! Bạn đã nắm được phần lớn ý chính.";
                         overallCorrectCount++;
                     } else if (matchPercentage >= 20) {
-                        individualFeedback += "\n  Nhận xét: Câu trả lời của bạn có một vài điểm liên quan, nhưng cần làm rõ và bổ sung thêm ý.";
+                        individualFeedback += "\n  Câu trả lời của bạn có một vài điểm liên quan, nhưng cần làm rõ và bổ sung thêm ý.";
                     } else {
-                        individualFeedback += "\n  Nhận xét: Có vẻ câu trả lời của bạn chưa thực sự khớp với các ý chính của đáp án mẫu.";
+                        individualFeedback += "\n  Có vẻ câu trả lời của bạn chưa thực sự khớp với các ý chính của đáp án mẫu.";
                     }
-                    individualFeedback += ` (Khớp ${matchedKeywordsCount}/${modelAnswerKeywords.length} từ khóa chính).`;
                 } else {
-                    individualFeedback += "\n  Nhận xét: Tôi chưa có đủ dữ liệu từ khóa để đánh giá chi tiết câu trả lời này.";
+                    individualFeedback += "\n  Tôi chưa có đủ dữ liệu từ khóa để đánh giá chi tiết câu trả lời này.";
                 }
                 // --- Kết thúc Phần Đánh giá ---
 
