@@ -18,7 +18,6 @@ const QUESTIONS_COLLECTION = 'questions';
 
 // --- Hàm Trợ giúp ---
 function extractSessionInfo(sessionPath) {
-    // ... (Giữ nguyên) ...
     const match = typeof sessionPath === 'string' 
         ? sessionPath.match(/projects\/([^/]+)\/(?:agent\/)?(?:environments\/[^/]+\/users\/[^/]+\/)?sessions\/([^/]+)/) 
         : null;
@@ -30,12 +29,10 @@ function extractSessionInfo(sessionPath) {
 }
 
 function buildContextName(projectId, sessionId, contextId) {
-    // ... (Giữ nguyên) ...
     return `projects/${projectId}/agent/sessions/${sessionId}/contexts/${contextId}`;
 }
 
 async function findConcept(conceptParam, conceptsCollection) {
-    // ... (Giữ nguyên) ...
      if (!conceptParam) return null;
      const searchTerm = String(conceptParam).toLowerCase().trim();
      let conceptDoc = await conceptsCollection.findOne({
@@ -53,7 +50,6 @@ async function findConcept(conceptParam, conceptsCollection) {
 }
 
 async function getRandomQuestions(params, questionsCollection) {
-    // ... (Giữ nguyên, nhưng đảm bảo lấy đủ thông tin cần cho context) ...
     const { number, topic, difficulty, concept, question_type } = params;
     const numQuestions = parseInt(number, 10) || 10; // Mặc định 10 câu
 
@@ -92,22 +88,7 @@ async function getRandomQuestions(params, questionsCollection) {
     }
 }
 
-async function getQuestionDetails(questionId, questionsCollection) {
-    // ... (Giữ nguyên) ...
-    try {
-        const question = await questionsCollection.findOne({ question_id: questionId });
-        return question;
-    } catch (error) {
-        console.error("Error fetching question details:", error);
-        return null;
-    }
-}
-
-// LOẠI BỎ các hàm createTestSession, getTestSession, updateTestSession, saveTestResultToUser
-
 // --- Hàm xử lý cho từng Intent ---
-
-// Nhóm 1: Lý thuyết (Giữ nguyên hoặc chỉnh sửa như code trước)
 // Nhóm 1: Lý thuyết
 async function handleGiveDefinition(parameters, sessionPath, explainationDetailed = false) {
     const result = { responseText: "Xin lỗi, tôi chưa hiểu ý bạn.", outputContexts: [] };
@@ -280,8 +261,6 @@ async function handleGiveExample(parameters) {
      return result;
 }
 
-
-// Nhóm 4: Danh sách câu hỏi (Giữ nguyên logic dùng context)
 async function handleRequestQuestionList(parameters, sessionPath) {
     const result = { responseText: "Có lỗi khi lấy danh sách câu hỏi.", outputContexts: [] };
     if (!db) db = getDB();
@@ -290,7 +269,7 @@ async function handleRequestQuestionList(parameters, sessionPath) {
         const questionsCollection = db.collection(QUESTIONS_COLLECTION);
 
         let requestedNumber = parseInt(parameters.number, 10);
-        // GIỚI HẠN SỐ LƯỢNG CÂU HỎI Ở ĐÂY
+
         const maxQuestions = 5;
         let numQuestionsToList;
 
@@ -301,11 +280,10 @@ async function handleRequestQuestionList(parameters, sessionPath) {
             // Nếu người dùng yêu cầu số lượng, lấy số đó nhưng không vượt quá maxQuestions
             numQuestionsToList = Math.min(requestedNumber, maxQuestions);
         }
-        // queryParams are passed to getRandomQuestions
+        
         const queryParams = {
-            ...parameters, // Includes concept (array), number, question_type (array), topic
+            ...parameters,
             number: numQuestionsToList,
-            // getRandomQuestions might expect 'concept' as a single string
             concept: Array.isArray(parameters.concept) ? parameters.concept[0] : parameters.concept
         };
 
@@ -335,18 +313,18 @@ async function handleRequestQuestionList(parameters, sessionPath) {
             const contextName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_list_followup');
             
             const questionDataForContext = questions.map(q => ({
-                question_id: q.question_id // Already a string from getRandomQuestions
+                question_id: q.question_id
             }));
 
             result.outputContexts.push({
                 name: contextName,
                 lifespanCount: 5,
-                parameters: { // Store all relevant original parameters along with the new question_data
-                    concept: parameters.concept, // Keep original array format from Dialogflow
+                parameters: { 
+                    concept: parameters.concept, 
                     number: parameters.number,
-                    question_type: parameters.question_type, // Keep original array format
+                    question_type: parameters.question_type, 
                     topic: parameters.topic,
-                    question_data: questionDataForContext // This is the list of question IDs
+                    question_data: questionDataForContext
                 }
             });
             console.log(`Setting Output Context: ${contextName} with ${questions.length} questions. question_data:`, JSON.stringify(questionDataForContext));
@@ -396,17 +374,16 @@ async function handleListQuery(parameters, sessionPath, type = 'answer') {
             .map(num => parseInt(num, 10) - 1)
             .filter(index => !isNaN(index) && index >= 0 && index < totalQuestionsInList);
         
-        if (validIndices.length === 0 && requestedNumbers.length > 0) { // User provided numbers, but all were invalid
+        if (validIndices.length === 0 && requestedNumbers.length > 0) {
             result.responseText = `Số thứ tự câu hỏi bạn cung cấp không hợp lệ. Danh sách này có ${totalQuestionsInList} câu (từ 1 đến ${totalQuestionsInList}).`;
         } else {
             questionIdsToFetchDetailsFor = [...new Set(validIndices.map(index => allQuestionIdsInCurrentList[index]))];
         }
         console.log(`Processing specific questions by numbers. IDs to fetch: ${JSON.stringify(questionIdsToFetchDetailsFor)}`);
     } else {
-        // NEW BEHAVIOR: If no specific numbers and no "all" scope, default to all.
         console.log("No specific numbers or 'all' scope provided. Defaulting to all questions.");
         questionIdsToFetchDetailsFor = allQuestionIdsInCurrentList;
-        processingAllDueToNoSpecification = true; // Flag to potentially add a note in the response
+        processingAllDueToNoSpecification = true;
     }
     
     if (questionIdsToFetchDetailsFor.length > 0) {
@@ -465,9 +442,6 @@ async function handleListQuery(parameters, sessionPath, type = 'answer') {
                     result.responseText += "\n\nBạn có câu hỏi nào khác không?";
                 }
             } else if (result.responseText === "Lỗi không xác định khi xử lý yêu cầu của bạn." && requestedNumbers.length > 0) { 
-                // This means numbers were given, but none were valid AND no items were processed.
-                // The earlier check for `validIndices.length === 0` should have set a more specific message.
-                // This is a fallback.
                  result.responseText = `Không có câu hỏi hợp lệ nào được tìm thấy từ các số bạn cung cấp.`;
             } else if (result.responseText === "Lỗi không xác định khi xử lý yêu cầu của bạn."){
                  result.responseText = `Tôi không tìm thấy thông tin ${type === 'answer' ? 'đáp án' : 'giải thích'} cho các câu hỏi được yêu cầu.`;
@@ -477,12 +451,8 @@ async function handleListQuery(parameters, sessionPath, type = 'answer') {
             result.responseText = `Đã có lỗi xảy ra khi tôi cố gắng tìm ${type === 'answer' ? 'đáp án' : 'giải thích'} cho bạn.`;
         }
     } else if (result.responseText === "Lỗi không xác định khi xử lý yêu cầu của bạn.") {
-        // This path is taken if `questionIdsToFetchDetailsFor` is empty AND no other responseText has been set yet.
-        // This typically happens if `requestedNumbers` were provided but all were invalid, and the specific message for that was set.
-        // If somehow it's still the default error, set a generic one.
         result.responseText = "Không có câu hỏi nào được chọn để xử lý.";
     }
-
 
     const sessionInfo = extractSessionInfo(sessionPath);
     const contextFullName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, 'quiz_list_followup');
@@ -506,8 +476,6 @@ async function handleListQuery(parameters, sessionPath, type = 'answer') {
 }
 
 async function handleAskAnswerForList(parameters, inputContexts, sessionPath) {
-    // inputContexts is available if needed for more complex logic, but handleListQuery
-    // primarily relies on `parameters` for context data.
     return await handleListQuery(parameters, sessionPath, 'answer');
 }
 
@@ -516,15 +484,6 @@ async function handleAskExplanationForList(parameters, inputContexts, sessionPat
 }
 
 
-// --- Webhook Endpoint (Illustrative) ---
-// Ensure connectDB() is called once when your app starts
-// Example:
-// 
-
-// --- Các hàm tiện ích mới hoặc được điều chỉnh cho handleCombinedRequest ---
-
-// Hàm này giúp lấy câu hỏi và định dạng chúng, đồng thời chuẩn bị context.
-// Nó được sử dụng khi 'quiz' và 'explain_quiz' diễn ra trong cùng một lượt.
 async function formatAndStoreQuizQuestions(params, sessionPath, questionsCollection, extractSessionInfoFn, buildContextNameFn) {
     const detailedQuestions = await getRandomQuestions(params, questionsCollection); // getRandomQuestions phải được định nghĩa ở nơi khác
     let responseText = "";
@@ -548,7 +507,6 @@ async function formatAndStoreQuizQuestions(params, sessionPath, questionsCollect
         const contextName = buildContextNameFn(sessionInfo.projectId, sessionInfo.sessionId, 'context_question_list_active');
         const questionDataForContext = detailedQuestions.map(q => ({
             question_id: q.question_id.toString(),
-            // Các trường khác có thể thêm vào context nếu cần bởi các intent theo dõi
         }));
         contextParams = {
             name: contextName,
@@ -561,7 +519,6 @@ async function formatAndStoreQuizQuestions(params, sessionPath, questionsCollect
     return { responseText, contextParams, questionsForExplanation };
 }
 
-// Hàm này định dạng giải thích cho các câu hỏi trắc nghiệm.
 function formatQuizExplanations(questions, conceptName) {
     if (!questions || questions.length === 0) return "";
     const explanations = questions.map((q, index) => {
@@ -595,8 +552,6 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
     console.log(`Handling combined request - Concepts: [${concepts.join(', ')}], Actions: [${actions.join(', ')}]`);
 
     let combinedResponseParts = [];
-    // db, CONCEPTS_COLLECTION, QUESTIONS_COLLECTION phải truy cập được từ scope này
-    // Ví dụ: const db = getDB(); const conceptsCollection = db.collection(CONCEPTS_COLLECTION);
 
     let mainConceptDoc = null;
     let mainConceptDisplayName = mainConceptParam;
@@ -628,7 +583,6 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                     break;
 
                 case 'example':
-                    // Ví dụ: "so sánh A và B, sau đó cho ví dụ về A". `mainConceptParam` (A) được dùng.
                     const exampleParams = { concept: mainConceptParam };
                     const exampleResult = await handleGiveExample(exampleParams); 
                     if (exampleResult.responseText) combinedResponseParts.push(exampleResult.responseText);
@@ -652,7 +606,7 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                 case 'list_multichoice':
                     const quizP = {
                         concept: mainConceptParam,
-                        number: parameters.number, // Default 3, or allow Dialogflow to pass 'number'
+                        number: parameters.number,
                         question_type: action === 'list_theory' ? ['theory'] : ['multiple_choice'], // Default to multiple choice
                     };
                     const questionsCollection = db.collection(QUESTIONS_COLLECTION);
@@ -660,13 +614,11 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                     const nextActionIsExplainQuiz = (currentActionIndex + 1 < actions.length) && (actions[currentActionIndex + 1] === 'explain_quiz');
 
                     if (nextActionIsExplainQuiz) {
-                        // Lấy câu hỏi và lưu trữ để giải thích ngay sau đó
                         const quizData = await formatAndStoreQuizQuestions(quizP, sessionPath, questionsCollection, extractSessionInfo, buildContextName);
                         if (quizData.responseText) combinedResponseParts.push(quizData.responseText);
                         if (quizData.contextParams) result.outputContexts.push(quizData.contextParams);
                         locallyGeneratedQuestions = quizData.questionsForExplanation;
                     } else {
-                        // Gọi handleRequestQuestionList chuẩn
                         const quizListResult = await handleRequestQuestionList(quizP, sessionPath);
                         if (quizListResult.responseText) combinedResponseParts.push(quizListResult.responseText);
                         if (quizListResult.outputContexts) result.outputContexts.push(...quizListResult.outputContexts);
@@ -678,15 +630,12 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
                         const explanationText = formatQuizExplanations(locallyGeneratedQuestions, mainConceptDisplayName);
                         combinedResponseParts.push(explanationText);
                     } else {
-                        // Thử giải thích dựa trên context đang hoạt động nếu có
                         const activeQuizContext = (result.outputContexts.find(ctx => ctx.name && ctx.name.endsWith('/contexts/context_question_list_active'))) ||
                                                (inputContexts.find(ctx => ctx.name && ctx.name.endsWith('/contexts/context_question_list_active')));
                         if (activeQuizContext && activeQuizContext.parameters && activeQuizContext.parameters.question_data) {
                              const explainListParams = {
-                                // handleAskExplanationForList mong muốn question_data và scope/question_numbers trong parameters
-                                // Truyền trực tiếp parameters của context cho handleAskExplanationForList
                                 ...activeQuizContext.parameters, 
-                                scope: "all", // Giả sử giải thích tất cả trong trường hợp này
+                                scope: "all",
                              };
                              const effectiveInputContexts = result.outputContexts.length > 0 ? result.outputContexts : inputContexts;
                              const explanationListResult = await handleAskExplanationForList(explainListParams, effectiveInputContexts, sessionPath);
@@ -715,14 +664,13 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
             result.responseText = `Tôi đã nhận được yêu cầu ${actions.length > 0 ? "với hành động '" + actions.join(', ') + "'" : ""} ${mainConceptParam ? "về '" + mainConceptDisplayName + "'" : ""} nhưng không thể tạo phản hồi cụ thể.`;
         }
 
-        // Hợp nhất và dọn dẹp outputContexts
         if (result.outputContexts.length > 0) {
             const uniqueContextsMap = new Map();
-            for (let i = result.outputContexts.length - 1; i >= 0; i--) { // Ưu tiên context thêm sau (mới hơn)
+            for (let i = result.outputContexts.length - 1; i >= 0; i--) { 
                 const context = result.outputContexts[i];
                 if (context && context.name) {
                     if (!uniqueContextsMap.has(context.name)) {
-                        uniqueContextsMap.set(context.name, { ...context }); // Clone context
+                        uniqueContextsMap.set(context.name, { ...context });
                     } else {
                         const existingContext = uniqueContextsMap.get(context.name);
                         existingContext.parameters = { ...existingContext.parameters, ...context.parameters }; // Merge params, mới hơn ghi đè
@@ -761,7 +709,6 @@ async function handleCombinedRequest(parameters, sessionPath, inputContexts = []
 function extractKeywords(text) {
     if (!text) return [];
     const lowerText = text.toLowerCase();
-    // Bổ sung thêm từ dừng nếu cần
     const stopWords = [
         'là', 'gì', 'thế', 'nào', 'vậy', 'bạn', 'mình', 'cho', 'biết', 'về', 'của', 'và', 'hoặc',
         'thì', 'mà', 'như', 'tại', 'sao', 'hãy', 'đi', 'có', 'không', 'được', 'một', 'các', 'những',
@@ -774,11 +721,10 @@ function extractKeywords(text) {
         const cleanWord = word.replace(/[?.,!:]/g, '');
         return cleanWord && !stopWords.includes(cleanWord) && cleanWord.length > 1; // Lấy từ dài hơn 1 ký tự
     });
-    // Cân nhắc thêm xử lý từ ghép tiếng Việt nếu cần độ chính xác cao hơn
+
     return [...new Set(keywords)];
 }
 
-// Hàm cố gắng phân tích câu hỏi trắc nghiệm người dùng gửi
 function parseUserMultipleChoiceQuestion(fullText) {
     const questionParts = {
         questionContent: null,
@@ -816,11 +762,9 @@ function parseUserMultipleChoiceQuestion(fullText) {
     return questionParts;
 }
 
-// --- Hàm xử lý cho Action: answer_theory_question ---
-// (Xử lý câu hỏi lý thuyết/mở do người dùng đặt)
-async function handleAskTheoryQuestion(parameters, sessionPath) { // sessionPath có thể không cần nếu không đặt context ở đây
+// Xử lý câu hỏi lý thuyết/mở do người dùng đặt
+async function handleAskTheoryQuestion(parameters, sessionPath) {
     const result = { responseText: "Xin lỗi, tôi chưa thể trả lời câu hỏi này.", outputContexts: [] };
-    // Lấy parameter chứa câu hỏi từ Dialogflow, dựa trên JSON bạn cung cấp là 'theory_question'
     const userQuestion = parameters.theory_question;
 
     if (!userQuestion) {
@@ -831,7 +775,6 @@ async function handleAskTheoryQuestion(parameters, sessionPath) { // sessionPath
     console.log(`Handling User Theory Question (via theory_question param): "${userQuestion}"`);
     try {
     // BƯỚC 1: CỐ GẮNG TÌM CÂU HỎI KHỚP HOÀN TOÀN/GẦN ĐÚNG TRONG CSDL QUESTIONS
-    // (Logic này có thể được tách ra hàm riêng nếu muốn)
         const questionsCollection = db.collection(QUESTIONS_COLLECTION);
         const conceptsCollection = db.collection(CONCEPTS_COLLECTION);
         let foundAnswer = null;
@@ -1081,7 +1024,6 @@ async function handleAskQuizQuestion(parameters, sessionPath) {
                     const conceptDoc = await findConcept(keyword, conceptsCollection);
                     if (conceptDoc) {
                         theoryInfo += `Tuy nhiên, tôi có thông tin về khái niệm "${conceptDoc.name}":\n${conceptDoc.definition}\nBạn có thể tham khảo thêm nhé.`;
-                        // Chỉ lấy concept đầu tiên tìm được cho ngắn gọn
                         break;
                     }
                 }
@@ -1097,9 +1039,8 @@ async function handleAskQuizQuestion(parameters, sessionPath) {
 
         result.responseText = foundAnswer;
 
-        // Đặt output context (ví dụ: quiz_followup như trong JSON request)
         const sessionInfo = extractSessionInfo(sessionPath);
-        const contextId = 'quiz_followup'; // Hoặc tên context bạn muốn
+        const contextId = 'quiz_followup';
         const contextFullName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, contextId);
         result.outputContexts.push({
             name: contextFullName,
@@ -1121,15 +1062,13 @@ async function handleAskQuizQuestion(parameters, sessionPath) {
     return result;
 }
 
-async function handleSubmitUserAnswersForList(parameters, inputContexts, sessionPath) {
+async function handleSubmitUserAnswersForQuizList(parameters, inputContexts, sessionPath) {
     const result = { responseText: "Xin lỗi, tôi chưa thể nhận xét đáp án của bạn lúc này.", outputContexts: [] };
 
     const userAnswers = parameters.answer_choice; // Mảng ["A", "B", "C", "D", "A"]
     const questionNumbers = parameters.number;     // Mảng [1, 2, 3, 4, 5]
 
     // Tìm context chứa danh sách question_id
-    // Dựa trên JSON của bạn, tên context là 'quiz_list_followup'
-    // Hoặc tên context bạn đã đặt cho Output của RequestQuestionList, ví dụ 'context_question_list_active'
     const listContext = inputContexts.find(ctx =>
         (ctx.name.endsWith('/contexts/quiz_list_followup')) &&
         ctx.parameters &&
@@ -1141,9 +1080,6 @@ async function handleSubmitUserAnswersForList(parameters, inputContexts, session
         return result;
     }
 
-    // question_data trong context bạn gửi là một mảng các object, mỗi object có key là question_id
-    // Ví dụ: [{ "question_id": "68162c885b647869f5d5a5d1" }, ...]
-    // Chúng ta cần lấy ra danh sách các ID này.
     let questionDataFromContext;
     try {
         // Nếu question_data đã là mảng object thì dùng trực tiếp
@@ -1164,9 +1100,7 @@ async function handleSubmitUserAnswersForList(parameters, inputContexts, session
     }
 
     // Trích xuất danh sách các ID từ context
-    // Giả sử mỗi phần tử trong questionDataFromContext là { question_id: "some_id_string" }
     const questionIdsFromContext = questionDataFromContext.map(item => item.question_id);
-
 
     if (!userAnswers || !questionNumbers || userAnswers.length !== questionNumbers.length || userAnswers.length === 0) {
         result.responseText = "Có vẻ như bạn chưa cung cấp đủ thông tin đáp án hoặc số thứ tự câu hỏi. Vui lòng thử lại, ví dụ: '1A 2B 3C'.";
@@ -1189,14 +1123,13 @@ async function handleSubmitUserAnswersForList(parameters, inputContexts, session
                 return new ObjectId(idStr);
             } catch (e) {
                 console.error(`Invalid ObjectId string: ${idStr}`);
-                return null; // hoặc xử lý lỗi khác
+                return null;
             }
         }).filter(id => id !== null); // Loại bỏ các ID không hợp lệ
 
 
         if (objectIdsToQuery.length !== questionIdsFromContext.length) {
             console.error("Một số question_id trong context không hợp lệ.");
-            // Xử lý trường hợp này, có thể thông báo lỗi hoặc chỉ xử lý các ID hợp lệ
         }
         
         const dbQuestions = await questionsCollection.find({ _id: { $in: objectIdsToQuery } }).toArray();
@@ -1255,38 +1188,177 @@ async function handleSubmitUserAnswersForList(parameters, inputContexts, session
     return result;
 }
 
+async function handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionPath) {
+    const result = { responseText: "Xin lỗi, tôi chưa thể xử lý câu trả lời của bạn lúc này.", outputContexts: [] };
+
+    const userTheoryAnswers = parameters.theory_answer; // Mảng ["trả lời câu một", "trả lời câu hai"]
+    const questionNumbers = parameters.number;     // Mảng [1, 2]
+
+    const listContextNameShort = 'quiz_list_followup'; // Hoặc context_question_list_active
+    const listContext = inputContexts.find(ctx =>
+        ctx.name.endsWith(`/contexts/${listContextNameShort}`) &&
+        ctx.parameters &&
+        ctx.parameters.question_data
+    );
+
+    if (!listContext || !listContext.parameters.question_data) {
+        result.responseText = "Xin lỗi, tôi không tìm thấy danh sách câu hỏi bạn đang trả lời.";
+        return result;
+    }
+
+    let questionDataFromContext;
+    try {
+        questionDataFromContext = typeof listContext.parameters.question_data === 'string'
+            ? JSON.parse(listContext.parameters.question_data)
+            : listContext.parameters.question_data;
+        if (!Array.isArray(questionDataFromContext)) throw new Error("question_data is not an array.");
+    } catch (e) {
+        console.error("Error parsing question_data from context:", e);
+        result.responseText = "Có lỗi khi đọc dữ liệu câu hỏi từ context. Vui lòng thử lại.";
+        return result;
+    }
+
+    const questionIdsFromContext = questionDataFromContext.map(item => item.question_id || item);
+
+    if (!userTheoryAnswers || !questionNumbers || userTheoryAnswers.length !== questionNumbers.length || userTheoryAnswers.length === 0) {
+        result.responseText = "Dữ liệu trả lời không hợp lệ.";
+        // ... (giữ lại context) ...
+        return result;
+    }
+
+    console.log(`Handling user theory answers for grading. User answers: ${JSON.stringify(userTheoryAnswers)}`);
+
+    try {
+        const questionsCollection = db.collection(QUESTIONS_COLLECTION);
+        let feedbackLines = ["Nhận xét câu trả lời của bạn:"];
+        let overallCorrectCount = 0; // Nếu bạn muốn đếm số câu "khá tốt" trở lên
+
+        const objectIdsToQuery = [];
+        // Tạo map từ số thứ tự người dùng nhập sang ID câu hỏi trong context
+        const userQNumToContextQIdMap = {};
+        for (let i = 0; i < questionNumbers.length; i++) {
+            const userQNumber = parseInt(questionNumbers[i], 10);
+            if (userQNumber > 0 && userQNumber <= questionIdsFromContext.length) {
+                const qId = questionIdsFromContext[userQNumber - 1];
+                userQNumToContextQIdMap[userQNumber] = qId; // Lưu map
+                try { objectIdsToQuery.push(new ObjectId(qId)); } catch (e) { console.warn(`Invalid ObjectId: ${qId}`); }
+            }
+        }
+
+        // Lấy chi tiết tất cả câu hỏi cần thiết một lần
+        const dbQuestions = await questionsCollection.find({ _id: { $in: objectIdsToQuery } }).toArray();
+        const dbQuestionsMap = dbQuestions.reduce((map, question) => {
+            map[question._id.toString()] = question;
+            return map;
+        }, {});
+
+        for (let i = 0; i < questionNumbers.length; i++) {
+            const userQNumber = parseInt(questionNumbers[i], 10);
+            const userAnswerText = userTheoryAnswers[i];
+            const questionIdForThisAnswer = userQNumToContextQIdMap[userQNumber];
+
+            let individualFeedback = `\n\nCâu ${userQNumber}:`;
+            const dbQuestion = dbQuestionsMap[questionIdForThisAnswer];
+
+            if (dbQuestion && dbQuestion.type === "theory") {
+                individualFeedback += `\n  Hỏi: "${dbQuestion.content}"`;
+                individualFeedback += `\n  Câu trả lời của bạn: "${userAnswerText}"`;
+
+                // --- Phần Đánh giá Dựa trên Từ khóa ---
+                const modelAnswerKeywords = dbQuestion.keywords_answer || extractKeywords(dbQuestion.correct_answer); // Giả sử có trường 'keywords_answer' trong DB hoặc trích xuất từ correct_answer
+                const userAnswerKeywords = extractKeywords(userAnswerText);
+                let matchedKeywordsCount = 0;
+
+                if (modelAnswerKeywords && modelAnswerKeywords.length > 0) {
+                    userAnswerKeywords.forEach(uk => {
+                        if (modelAnswerKeywords.some(mk => mk.toLowerCase() === uk.toLowerCase())) { // So sánh không phân biệt hoa thường
+                            matchedKeywordsCount++;
+                        }
+                    });
+                    const matchPercentage = (matchedKeywordsCount / modelAnswerKeywords.length) * 100;
+
+                    if (matchPercentage >= 80) {
+                        individualFeedback += "\n  Nhận xét: Rất tốt! Câu trả lời của bạn rất đầy đủ và chính xác các ý chính.";
+                        overallCorrectCount++;
+                    } else if (matchPercentage >= 50) {
+                        individualFeedback += "\n  Nhận xét: Khá tốt! Bạn đã nắm được phần lớn ý chính.";
+                        overallCorrectCount++;
+                    } else if (matchPercentage >= 20) {
+                        individualFeedback += "\n  Nhận xét: Câu trả lời của bạn có một vài điểm liên quan, nhưng cần làm rõ và bổ sung thêm ý.";
+                    } else {
+                        individualFeedback += "\n  Nhận xét: Có vẻ câu trả lời của bạn chưa thực sự khớp với các ý chính của đáp án mẫu.";
+                    }
+                    individualFeedback += ` (Khớp ${matchedKeywordsCount}/${modelAnswerKeywords.length} từ khóa chính).`;
+                } else {
+                    individualFeedback += "\n  Nhận xét: Tôi chưa có đủ dữ liệu từ khóa để đánh giá chi tiết câu trả lời này.";
+                }
+                // --- Kết thúc Phần Đánh giá ---
+
+                individualFeedback += `\n  Câu trả lời mẫu của hệ thống: "${dbQuestion.correct_answer || 'Chưa có câu trả lời mẫu.'}"`;
+                if (dbQuestion.explanation) {
+                    individualFeedback += `\n  Giải thích thêm: ${dbQuestion.explanation}`;
+                }
+            } else if (dbQuestion) {
+                individualFeedback += `\n  Hỏi: "${dbQuestion.content}" là câu hỏi trắc nghiệm, không phải lý thuyết để nhận xét theo cách này.`;
+            } else {
+                individualFeedback += `\n  Không tìm thấy thông tin cho câu hỏi số ${userQNumber} trong danh sách.`;
+            }
+            feedbackLines.push(individualFeedback);
+        }
+
+        if (feedbackLines.length > 1) {
+            result.responseText = feedbackLines.join("");
+            // Bạn có thể thêm một tóm tắt chung ở cuối nếu muốn
+            // result.responseText += `\n\nTổng quan: Bạn đã trả lời khá tốt ${overallCorrectCount} trên tổng số ${questionNumbers.length} câu đã nhận xét.`;
+        } else {
+            result.responseText = "Tôi không nhận được câu trả lời nào hợp lệ để xử lý.";
+        }
+
+        // Giữ lại context để người dùng có thể yêu cầu giải thích lại hoặc thao tác khác
+        const sessionInfo = extractSessionInfo(sessionPath);
+        const contextFullNameToMaintain = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, listContextNameShort);
+        result.outputContexts.push({
+            name: contextFullNameToMaintain,
+            lifespanCount: 2,
+            parameters: listContext.parameters
+        });
+
+    } catch (error) {
+        console.error("Error handling handleSubmitUserTheoryAnswers with grading:", error);
+        result.responseText = "Đã có lỗi xảy ra khi nhận xét đáp án lý thuyết của bạn.";
+    }
+    return result;
+}
 
 // --- Endpoint Webhook Chính ---
 app.post('/webhook', async (req, res) => {
-    // ... (Phần này giữ nguyên logic switch case, nhưng case sẽ gọi các hàm handler đã được chỉnh sửa ở trên) ...
+    if (!db) { await connectDB(); }
+    if (!db) { return res.status(500).json({ fulfillmentText: "Lỗi nghiêm trọng: Không thể kết nối cơ sở dữ liệu." }); }
 
-     if (!db) { await connectDB(); }
-     if (!db) { return res.status(500).json({ fulfillmentText: "Lỗi nghiêm trọng: Không thể kết nối cơ sở dữ liệu." }); }
+    const queryResult = req.body.queryResult;
+    const actionName = req.body.queryResult.action;
+    const intentName = queryResult.intent.displayName;
+    const parameters = queryResult.parameters;
+    const sessionPath = req.body.session;
+    const inputContexts = req.body.queryResult.outputContexts || [];
 
-     const queryResult = req.body.queryResult;
-     const actionName = req.body.queryResult.action;
-     const intentName = queryResult.intent.displayName;
-     const parameters = queryResult.parameters;
-     const sessionPath = req.body.session;
-     const inputContexts = req.body.queryResult.outputContexts || [];
+    console.log(`[${new Date().toISOString()}] Action: "${actionName}", Intent: "${intentName}", Session: ${sessionPath}`);
 
-     console.log(`[${new Date().toISOString()}] Action: "${actionName}", Intent: "${intentName}", Session: ${sessionPath}`);
+    let handlerResult = { responseText: "Xin lỗi, tôi chưa hiểu rõ yêu cầu của bạn.", outputContexts: [] };
 
-     let handlerResult = { responseText: "Xin lỗi, tôi chưa hiểu rõ yêu cầu của bạn.", outputContexts: [] };
-
-     try {
-          switch (actionName) {
+    try {
+        switch (actionName) {
             case 'give_definition':
                 handlerResult = await handleGiveDefinition(parameters, sessionPath, false);
-                  break;
-              case 'give_definition_detailed':
+                break;
+            case 'give_definition_detailed':
                 handlerResult = await handleGiveDefinition(parameters, sessionPath, true);
                   break;
             case 'compare_topics':
                 handlerResult = await handleComparison(parameters);
                 break;
-            case 'give_example': // Bạn có thể gộp nếu logic xử lý ví dụ là chung
-                handlerResult = await handleGiveExample(parameters); // Hàm này cần xử lý cả context
+            case 'give_example': 
+                handlerResult = await handleGiveExample(parameters);
                 break;
             case 'handle_combined_request':
                 handlerResult = await handleCombinedRequest(parameters, sessionPath);
@@ -1297,84 +1369,45 @@ app.post('/webhook', async (req, res) => {
             case 'quiz_answer':
                 handlerResult = await handleAskAnswerForList(parameters, inputContexts, sessionPath);
                   break;
-                  case 'decline_quiz_explanation_after_answer': // Hoặc tên action bạn đặt cho Intent "No"
-                  console.log("User declined explanation after answers.");
-                  handlerResult.responseText = "Được rồi. Bạn có cần tôi hỗ trợ gì khác không?"; // Hoặc một câu chào kết thúc phù hợp
-  
-                  const sessionInfoNo = extractSessionInfo(sessionPath);
-                  
-                  // 1. Xóa context xác nhận vì nó đã được xử lý
-                  const confirmContextNameToClear = buildContextName(sessionInfoNo.projectId, sessionInfoNo.sessionId, 'quiz_explanation_confirm');
-                  
-                  // 2. Quyết định về context quiz_list_followup:
-                  // Option A: Để quiz_list_followup tự hết hạn hoặc người dùng tự kết thúc bằng một intent khác.
-                  // Option B: Chủ động làm mới quiz_list_followup nếu bạn muốn người dùng có thể hỏi lại về quiz đó.
-                  // Option C: Chủ động xóa quiz_list_followup nếu "không" đồng nghĩa với việc kết thúc hoàn toàn với quiz này.
-  
-                  // Ví dụ: Xóa context xác nhận và không làm gì với quiz_list_followup (để nó tự nhiên)
-                  handlerResult.outputContexts = [
-                      { name: confirmContextNameToClear, lifespanCount: 0, parameters: {} }
-                      // Nếu bạn muốn làm mới quiz_list_followup, bạn cần lấy parameters của nó
-                      // từ `inputContexts` hoặc `parameters` (nếu Dialogflow truyền) và đặt lại.
-                      // Ví dụ làm mới (cần cẩn thận để lấy đúng parameters):
-                      // const activeQuizContext = inputContexts.find(ctx => ctx.name.endsWith('/contexts/quiz_list_followup'));
-                      // if (activeQuizContext) {
-                      //     handlerResult.outputContexts.push({
-                      //         name: activeQuizContext.name,
-                      //         lifespanCount: 5, // Làm mới lifespan
-                      //         parameters: activeQuizContext.parameters
-                      //     });
-                      // }
-                  ];
-                  break;
             case 'explain_quiz':
                 handlerResult = await handleAskExplanationForList(parameters, inputContexts, sessionPath);
-                  break;
-              case 'answer_quiz_question':
+                break;
+            case 'answer_quiz_question':
                 handlerResult = await handleAskQuizQuestion(parameters, sessionPath);
-                  break;
-              case 'answer_theory_question':
+                break;
+            case 'answer_theory_question':
                 handlerResult = await handleAskTheoryQuestion(parameters, sessionPath);
-                  break;
-              case 'submit_quiz_question':
-                  handlerResult = await handleSubmitUserAnswersForList(parameters, inputContexts, sessionPath);
-                  break;
-            // Các action cho intent phụ trợ nếu webhook cần xử lý
-            // case 'action.welcome':
-            //     handlerResult.responseText = "Chào mừng bạn đến với trợ lý ảo bảo mật!";
-            //     break;
-            // case 'action.cancelCurrent':
-            //     // Logic hủy
-            //     break;
+                break;
+            case 'submit_quiz_question':
+                handlerResult = await handleSubmitUserAnswersForQuizList(parameters, inputContexts, sessionPath);
+                break;
+            case 'submit_theory_question':
+                handlerResult = await handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionPath);
+                break;
             default:
                 console.log(`Action "${actionName}" (Intent: "${intentName}") chưa được xử lý. Sẽ dùng Default Fallback của Dialogflow.`);
-                // Nếu bạn muốn webhook trả lời mặc định khi không có action nào khớp trong webhook (nhưng intent đó lại bật webhook)
-                // handlerResult.responseText = `Action "${actionName}" chưa được hỗ trợ qua webhook.`;
-                // Thường thì nếu intent không có logic webhook, bạn sẽ không bật webhook cho nó trong Dialogflow
-                // và để Dialogflow tự trả lời bằng "Responses" đã cấu hình.
-                // Nếu một action được gửi đến đây mà không có case, nghĩa là bạn đã bật webhook cho intent đó nhưng chưa code logic.
                 if (actionName) {
                     handlerResult.responseText = `Action "${actionName}" đang được phát triển.`;
                 }
                 break;
         }
-     } catch (error) {
-          console.error(`Error handling intent ${intentName}:`, error);
-          handlerResult.responseText = "Rất tiếc, đã có lỗi xảy ra trong quá trình xử lý yêu cầu của bạn.";
-          handlerResult.outputContexts = [];
-     }
+    } catch (error) {
+        console.error(`Error handling intent ${intentName}:`, error);
+        handlerResult.responseText = "Rất tiếc, đã có lỗi xảy ra trong quá trình xử lý yêu cầu của bạn.";
+        handlerResult.outputContexts = [];
+    }
 
      // --- Gửi phản hồi về Dialogflow ---
-     const responseJson = {
-          fulfillmentMessages: [{ text: { text: [handlerResult.responseText || "Tôi không có phản hồi cho việc này."] } }],
-          outputContexts: handlerResult.outputContexts || []
-     };
+    const responseJson = {
+        fulfillmentMessages: [{ text: { text: [handlerResult.responseText || "Tôi không có phản hồi cho việc này."] } }],
+        outputContexts: handlerResult.outputContexts || []
+    };
 
-     console.log("--- Sending Response to Dialogflow (Context-Only Quiz State) ---");
-     console.log(JSON.stringify(responseJson, null, 2));
-     console.log("-------------------------------------------------------------");
+    console.log("--- Sending Response to Dialogflow (Context-Only Quiz State) ---");
+    console.log(JSON.stringify(responseJson, null, 2));
+    console.log("-------------------------------------------------------------");
 
-     res.json(responseJson);
+    res.json(responseJson);
 });
 
 
@@ -1382,7 +1415,7 @@ app.get('/', (req, res) => {
   res.status(200).json({ status: 'Webhook server is running' });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`Local server listening on port ${PORT}`);
 
