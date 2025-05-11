@@ -901,8 +901,6 @@ async function handleAskTheoryQuestion(parameters, sessionPath) {
                         foundAnswer += `\n\n${mainConceptDoc.name || keyword} có thể được so sánh như sau:\n${availableComparisons}`;
                         providedSpecificInfo = true;
                     }
-                    // Bạn có thể thêm các từ khóa khác như "mục đích", "cách phòng chống"...
-
                 }
             }
         }
@@ -914,8 +912,6 @@ async function handleAskTheoryQuestion(parameters, sessionPath) {
             result.responseText = `Xin lỗi, tôi chưa có đủ thông tin để trả lời câu hỏi: "${userQuestion}". Bạn có thể thử hỏi về một khái niệm bảo mật cụ thể mà bạn quan tâm không?`;
         }
 
-        // Đặt output context (ví dụ: theory_followup như trong JSON request)
-        // Bạn có thể lưu các keywords hoặc concept chính tìm được vào context nếu muốn
         const sessionInfo = extractSessionInfo(sessionPath);
         console.log("Session Info:", sessionInfo);
 
@@ -923,10 +919,9 @@ async function handleAskTheoryQuestion(parameters, sessionPath) {
         const contextFullName = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, contextId);
         result.outputContexts.push({
             name: contextFullName,
-            lifespanCount: 2, // Hoặc một giá trị phù hợp
+            lifespanCount: 2,
             parameters: {
                 last_user_question: userQuestion, // Lưu lại câu hỏi
-                // keywords_found: keywords // Lưu lại keywords nếu muốn
             }
         });
 
@@ -1194,7 +1189,7 @@ async function handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionP
     const userTheoryAnswers = parameters.theory_answer; // Mảng ["trả lời câu một", "trả lời câu hai"]
     const questionNumbers = parameters.number;     // Mảng [1, 2]
 
-    const listContextNameShort = 'quiz_list_followup'; // Hoặc context_question_list_active
+    const listContextNameShort = 'quiz_list_followup';
     const listContext = inputContexts.find(ctx =>
         ctx.name.endsWith(`/contexts/${listContextNameShort}`) &&
         ctx.parameters &&
@@ -1231,7 +1226,7 @@ async function handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionP
     try {
         const questionsCollection = db.collection(QUESTIONS_COLLECTION);
         let feedbackLines = ["Nhận xét câu trả lời của bạn:"];
-        let overallCorrectCount = 0; // Nếu bạn muốn đếm số câu "khá tốt" trở lên
+        let overallCorrectCount = 0;
 
         const objectIdsToQuery = [];
         // Tạo map từ số thứ tự người dùng nhập sang ID câu hỏi trong context
@@ -1263,7 +1258,7 @@ async function handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionP
             if (dbQuestion && dbQuestion.type === "theory") {
 
                 // --- Phần Đánh giá Dựa trên Từ khóa ---
-                const modelAnswerKeywords = dbQuestion.keywords_answer || extractKeywords(dbQuestion.correct_answer); // Giả sử có trường 'keywords_answer' trong DB hoặc trích xuất từ correct_answer
+                const modelAnswerKeywords = dbQuestion.keywords_answer || extractKeywords(dbQuestion.correct_answer);
                 const userAnswerKeywords = extractKeywords(userAnswerText);
                 let matchedKeywordsCount = 0;
 
@@ -1305,13 +1300,10 @@ async function handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionP
 
         if (feedbackLines.length > 1) {
             result.responseText = feedbackLines.join("");
-            // Bạn có thể thêm một tóm tắt chung ở cuối nếu muốn
-            // result.responseText += `\n\nTổng quan: Bạn đã trả lời khá tốt ${overallCorrectCount} trên tổng số ${questionNumbers.length} câu đã nhận xét.`;
         } else {
             result.responseText = "Tôi không nhận được câu trả lời nào hợp lệ để xử lý.";
         }
 
-        // Giữ lại context để người dùng có thể yêu cầu giải thích lại hoặc thao tác khác
         const sessionInfo = extractSessionInfo(sessionPath);
         const contextFullNameToMaintain = buildContextName(sessionInfo.projectId, sessionInfo.sessionId, listContextNameShort);
         result.outputContexts.push({
@@ -1345,21 +1337,18 @@ app.post('/webhook', async (req, res) => {
 
     try {
         switch (actionName) {
+            // --1--
             case 'give_definition':
                 handlerResult = await handleGiveDefinition(parameters, sessionPath, false);
                 break;
             case 'give_definition_detailed':
                 handlerResult = await handleGiveDefinition(parameters, sessionPath, true);
-                  break;
-            case 'compare_topics':
-                handlerResult = await handleComparison(parameters);
-                break;
+                break;   
             case 'give_example': 
                 handlerResult = await handleGiveExample(parameters);
                 break;
-            case 'handle_combined_request':
-                handlerResult = await handleCombinedRequest(parameters, sessionPath);
-                break;
+            
+            // --2--
             case 'generate_quiz_list':
                 handlerResult = await handleRequestQuestionList(parameters, sessionPath);
                 break;
@@ -1369,17 +1358,27 @@ app.post('/webhook', async (req, res) => {
             case 'explain_quiz':
                 handlerResult = await handleAskExplanationForList(parameters, inputContexts, sessionPath);
                 break;
+            
+            // --3--
+            case 'compare_topics':
+                handlerResult = await handleComparison(parameters);
+                break;
             case 'answer_quiz_question':
                 handlerResult = await handleAskQuizQuestion(parameters, sessionPath);
                 break;
             case 'answer_theory_question':
                 handlerResult = await handleAskTheoryQuestion(parameters, sessionPath);
                 break;
+            
+            // --4--
             case 'submit_quiz_question':
                 handlerResult = await handleSubmitUserAnswersForQuizList(parameters, inputContexts, sessionPath);
                 break;
             case 'submit_theory_question':
                 handlerResult = await handleSubmitUserTheoryAnswers(parameters, inputContexts, sessionPath);
+                break;
+            case 'handle_combined_request':
+                handlerResult = await handleCombinedRequest(parameters, sessionPath);
                 break;
             default:
                 console.log(`Action "${actionName}" (Intent: "${intentName}") chưa được xử lý. Sẽ dùng Default Fallback của Dialogflow.`);
